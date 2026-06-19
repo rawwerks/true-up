@@ -1,0 +1,6 @@
+{
+  "_comment": "true-up's own config — it trues up itself (dogfood). No stewards/generated docs of its own yet; the public-surface zone keeps machine-local paths out of its files.",
+  "zones": [
+    { "path": "", "visibility": "public", "audience": "world", "intent": "open-kimono", "rules": ["no-machine-local-paths"] }
+  ]
+}

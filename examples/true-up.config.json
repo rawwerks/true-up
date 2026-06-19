@@ -1,0 +1,17 @@
+{
+  "_comment": "Example .true-up.json. Copy to your repo root as .true-up.json and adapt. All keys optional.",
+  "facts": {
+    "data/verdicts.json": [["frameworks", "key"]],
+    "data/versions.json": [["packages", "name"]]
+  },
+  "zones": [
+    { "path": "private/", "visibility": "private", "audience": "team", "intent": "encrypted-notes", "rules": ["must-be-ciphertext"] },
+    { "path": "**/SKILL.md", "visibility": "public", "audience": "external-agents", "intent": "loadable-skill", "rules": ["no-machine-local-paths"] },
+    { "path": "README.md", "visibility": "public", "audience": "users", "intent": "user-overview", "rules": ["no-machine-local-paths"] },
+    { "path": "", "visibility": "public", "audience": "world", "intent": "public-default", "rules": ["no-machine-local-paths", "no-public->private-deps"] }
+  ],
+  "seed": [
+    { "from": "README.md", "to": "data/verdicts.json", "kind": "derives-facts-from" }
+  ],
+  "out": ".true-up/depgraph.json"
+}

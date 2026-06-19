@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+// true-up — deterministic, git-native truing-up for any repo.
+// Thin entry; the engine is lib/engine.mjs (operates on a target repo via --repo / CWD + .true-up.json).
+import(new URL('../lib/engine.mjs', import.meta.url))

@@ -1,0 +1,13 @@
+{
+  "name": "true-up",
+  "version": "0.1.0",
+  "description": "Deterministic, git-native truing-up for any repo: a content-hashed dependency graph that detects what a change makes stale, regenerates the mechanical, and worklists the advisory.",
+  "type": "module",
+  "bin": { "true-up": "bin/true-up" },
+  "scripts": {
+    "test": "bash tests/engine.sh"
+  },
+  "engines": { "node": ">=18" },
+  "license": "UNLICENSED",
+  "private": true
+}

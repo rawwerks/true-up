@@ -43,6 +43,7 @@ shorthand in the examples is that same command.
 true-up                          # build the graph (.true-up/depgraph.json)
 true-up --impact --since HEAD~1  # what a change made stale: mechanical (regen) vs advisory (review)
 true-up run --since HEAD~1       # the truing-up gate TODAY: detect → regenerate mechanical → advisory worklist → verify
+true-up --verify-scope --since HEAD~1  # anti-code-golf gate: exit 1 if any changed file is outside the deterministic blast radius
 true-up --check                  # stale-graph gate on the ON-DISK graph (exit 1 if it drifted from a fresh build)
 true-up --check --committed      # drift gate on the COMMITTED/STAGED graph blob (exit 1 if stale; exit 1 if untracked)
 true-up --policy                 # zone/visibility lint (exit 1 on violations; --report = exit 0)
@@ -52,10 +53,12 @@ true-up --help                   # command table; writes NOTHING (exit 0)
 true-up --repo <path>            # target another repo
 ```
 
-`run` is the truing-up gate you have today: it regenerates mechanical dependents, prints the
-advisory worklist, and verifies (policy clean + on-disk graph in sync). There is no separate
-agentic prose-rewrite `/workflow` yet — "run the workflow" means `true-up run`. It still leaves the
-prose rewrite to a human/LLM (see the advisory worklist).
+`run` is the deterministic gate: it regenerates mechanical dependents, prints the advisory worklist,
+and verifies (policy clean + on-disk graph in sync). The CLI never edits prose. The **agentic layer**
+that makes the minimal advisory prose edits lives in [`workflows/`](./workflows/README.md): the default
+`maintenance` workflow (light, blast-radius-scoped, anti-code-golf — gated by `--verify-scope`) and a
+separate report-only `audit` workflow (whole-repo lint + drift + candidate missing edges; proposes,
+never decides). Use `maintenance` after a change; run `audit` deliberately (pre-release / periodic).
 
 ## How to read the output
 
@@ -77,6 +80,11 @@ prose rewrite to a human/LLM (see the advisory worklist).
   ref is an error, never a silent "0 dependents").
 - `run` — exit 0 if GREEN; exit 1 if not GREEN (a generator failed, policy had violations, or the
   graph is stale). With `--strict`, exit 2 when advisory prose still needs review.
+- `--verify-scope --since <ref>` — the anti-code-golf gate. exit 0 if every changed file is *explained*
+  by the graph (the changed source-of-truth, its regenerated/advisory dependents, or the cache); exit 1
+  (naming the offender) if a changed file has no declared dependency linking it to what changed — i.e. a
+  maintenance pass strayed outside the deterministic blast radius. Undeclared staleness is the audit's
+  job; this keeps the change set deterministic. Bad ref → exit 2.
 - `--help` / `-h` / `help` — prints the command table and **writes nothing**, exit 0.
 - An **unknown command/flag** exits 2 and writes nothing — it does **not** silently build and write
   the graph into the target repo.

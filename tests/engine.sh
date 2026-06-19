@@ -140,6 +140,23 @@ echo "$err" | grep -q 'fatal:' && no "blob() must suppress git fatal: noise on u
 err="$($TU --repo "$C" --check 2>&1 1>/dev/null)"
 echo "$err" | grep -q '\.\./\.\.' && no "cross-repo regenerate hint leaks a ../.. path" || ok "cross-repo regenerate hint is generic (no ../.. path)"
 
+# T20 — --verify-scope: the deterministic anti-code-golf gate (empirically: unguarded LLMs hit the decoy 3/3)
+V="$(mktemp -d)"; git -C "$V" init -q
+printf '%s\n' '{ "items": [ { "id": "a", "v": 1 } ] }' > "$V/data.json"
+printf '%s\n' '# dep' 'a is 1 <!-- fact: data.json#items.a -->' > "$V/dep.md"
+printf '%s\n' '# leaf' 'a is mentioned here but is not anchored to any fact.' > "$V/leaf.md"
+printf '%s\n' '{ "facts": { "data.json": [["items","id"]] }, "zones": [ {"path":"","visibility":"public","audience":"world","intent":"public","rules":[]} ], "seed": [] }' > "$V/.true-up.json"
+node "$TU" --repo "$V" >/dev/null 2>&1
+git -C "$V" add -A && git -C "$V" -c user.email=t@t -c user.name=t commit -qm good
+# in-scope maintenance: move the fact + update ONLY its anchored dependent
+printf '%s\n' '{ "items": [ { "id": "a", "v": 2 } ] }' > "$V/data.json"
+printf '%s\n' '# dep' 'a is 2 <!-- fact: data.json#items.a -->' > "$V/dep.md"
+$TU --repo "$V" --verify-scope --since HEAD >/dev/null 2>&1; rc=$?; [ "$rc" -eq 0 ] && ok "--verify-scope PASSES when edits stay in the blast radius" || no "--verify-scope must pass in-scope edits"
+# now ALSO edit the unanchored leaf (the decoy) -> out of scope -> FAIL, naming it
+printf '%s\n' '# leaf' 'a is 2 now (an out-of-scope tidy).' > "$V/leaf.md"
+out="$($TU --repo "$V" --verify-scope --since HEAD 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'leaf.md'; } && ok "--verify-scope FAILS on an out-of-blast-radius (code-golf) edit, naming it" || no "--verify-scope must catch out-of-scope edits"
+
 echo
 echo "engine tests: ${pass} passed, ${fail} failed"
 [ "$fail" = 0 ] || exit 1

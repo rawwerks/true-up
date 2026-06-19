@@ -12,8 +12,8 @@ pass=0 ; fail=0
 ok(){ printf '  \033[32mPASS\033[0m %s\n' "$1"; pass=$((pass + 1)); }
 no(){ printf '  \033[31mFAIL\033[0m %s\n' "$1"; fail=$((fail + 1)); }
 
-FIX="$(mktemp -d)"
-trap 'rm -rf "$FIX"' EXIT
+FIX="$(mktemp -d)"; H=""; C=""; P=""; E=""
+trap 'rm -rf "$FIX" "$H" "$C" "$P" "$E"' EXIT
 
 # --- synthesize a target repo: steward data + a generated view + an anchored doc + a symlink ---
 git -C "$FIX" init -q
@@ -56,17 +56,89 @@ printf '%s\n' '# how-to' 'Anchor inline like `<!-- fact: example.json#x.y -->`, 
 $TU --repo "$FIX" >/dev/null 2>&1 && ok "anchor examples in code formatting do not fail-loud" || no "anchor examples in code must not fail-loud"
 rm -f "$FIX/howto.md"; $TU --repo "$FIX" >/dev/null 2>&1
 
-# T6 — externality detection (machine-local leak)
+# T6 — externality detection (machine-local leak). NB: --externalities now GATES (exit 1 on a leak),
+# so assert on captured OUTPUT, not the pipeline exit (pipefail would otherwise mask the grep).
 printf '%s\n' 'path: /home/someuser/x' > "$FIX/leak.md"
-$TU --repo "$FIX" --externalities 2>/dev/null | grep -q '\[high\]' && ok "--externalities flags a /home leak" || no "--externalities flags a leak"
+out="$($TU --repo "$FIX" --externalities 2>/dev/null)"; echo "$out" | grep -q '\[high\]' && ok "--externalities flags a /home leak" || no "--externalities flags a leak"
 rm -f "$FIX/leak.md"
-$TU --repo "$FIX" --externalities 2>/dev/null | grep -q ': 0 (0 high)' && ok "--externalities clean otherwise" || no "--externalities clean otherwise"
+out="$($TU --repo "$FIX" --externalities 2>/dev/null)"; echo "$out" | grep -q ': 0 (0 high)' && ok "--externalities clean otherwise" || no "--externalities clean otherwise"
 
 # T7 — zone/policy gate clean
 $TU --repo "$FIX" --policy 2>/dev/null | grep -q 'policy violations: 0' && ok "--policy reports 0 violations" || no "--policy reports 0 violations"
 
 # T8 — the deterministic true-up loop reaches GREEN on a clean target
 $TU --repo "$FIX" run --since HEAD 2>/dev/null | grep -q 'GREEN' && ok "run --since reaches GREEN on a clean repo" || no "run reaches GREEN"
+
+# T9 — HIGH-1: --policy / --externalities are GATES (exit nonzero on violations), with --report opt-out
+printf '%s\n' 'see /home/bob/secret/x' > "$FIX/leak2.md"
+$TU --repo "$FIX" --policy >/dev/null 2>&1; rc=$?;        [ "$rc" -ne 0 ] && ok "HIGH-1: --policy EXITS NONZERO on a violation" || no "HIGH-1: --policy must gate"
+$TU --repo "$FIX" --externalities >/dev/null 2>&1; rc=$?; [ "$rc" -ne 0 ] && ok "HIGH-1: --externalities EXITS NONZERO on a leak" || no "HIGH-1: --externalities must gate"
+$TU --repo "$FIX" --policy --report >/dev/null 2>&1; rc=$?; [ "$rc" -eq 0 ] && ok "HIGH-1: --policy --report stays exit 0 (report-only)" || no "HIGH-1: --report must exit 0"
+rm -f "$FIX/leak2.md"; $TU --repo "$FIX" >/dev/null 2>&1
+$TU --repo "$FIX" --policy >/dev/null 2>&1; rc=$?;        [ "$rc" -eq 0 ] && ok "HIGH-1: --policy exits 0 when clean" || no "--policy must exit 0 when clean"
+
+# T10 — HIGH-2: a machine-local path shown inside CODE formatting (docs explaining a rule) is NOT a leak
+printf '%s\n' '# privacy policy' 'We reject paths like `/home/alice/private/` in values.' '```' 'example: /home/bob/scratch/' '```' > "$FIX/privacy.md"
+$TU --repo "$FIX" --externalities >/dev/null 2>&1; rc=$?; [ "$rc" -eq 0 ] && ok "HIGH-2: /home in inline+fenced code is not flagged (stripCode in detectors)" || no "HIGH-2: code-span paths must not be flagged"
+rm -f "$FIX/privacy.md"; $TU --repo "$FIX" >/dev/null 2>&1
+
+# T11 — suppression directives mute a legit path-example in prose; scope is per-line
+printf '%s\n' '# notes' 'avoid /home/eve/x/ here <!-- true-up:ignore-line -->' '<!-- true-up:ignore-next no-machine-local-paths -->' 'and /home/eve/y/ here' > "$FIX/sup.md"
+$TU --repo "$FIX" --externalities >/dev/null 2>&1; rc=$?; [ "$rc" -eq 0 ] && ok "suppression: ignore-line + ignore-next mute path findings" || no "suppression directives must mute findings"
+printf '%s\n' '# notes' 'and /home/eve/z/ here (no directive)' > "$FIX/sup.md"
+$TU --repo "$FIX" --externalities >/dev/null 2>&1; rc=$?; [ "$rc" -ne 0 ] && ok "suppression is per-line (an unmarked leak still flags)" || no "unmarked leak must still flag"
+rm -f "$FIX/sup.md"; $TU --repo "$FIX" >/dev/null 2>&1
+
+# T12 — MED: --impact --since <bad ref> is exit 2, NOT a silent "0 dependents" exit 0
+$TU --repo "$FIX" --impact --since deadbeefb0gusref >/dev/null 2>&1; rc=$?; [ "$rc" -eq 2 ] && ok "MED: --impact --since <bad ref> exits 2 (distinct from 0 impact)" || no "bad --since ref must exit 2"
+
+# T13 — HIGH-4: --help and unknown args WRITE NOTHING into the target repo
+H="$(mktemp -d)"; git -C "$H" init -q
+$TU --repo "$H" --help >/dev/null 2>&1; rc=$?;  { [ "$rc" -eq 0 ] && [ ! -e "$H/.true-up" ]; } && ok "HIGH-4: --help exits 0 and writes nothing" || no "HIGH-4: --help must not write"
+$TU --repo "$H" --bogus >/dev/null 2>&1; rc=$?; { [ "$rc" -eq 2 ] && [ ! -e "$H/.true-up" ]; } && ok "HIGH-4: unknown command exits 2 and writes nothing" || no "HIGH-4: unknown arg must exit 2, no write"
+$TU --repo "$H" >/dev/null 2>&1; [ -e "$H/.true-up/depgraph.json" ] && ok "build (no args) still writes the graph" || no "build must write"
+
+# T14 — HIGH-3: --check --committed is the real drift gate (untracked / stale committed blob both fail)
+C="$(mktemp -d)"; git -C "$C" init -q
+printf '%s\n' '{ "items": [ { "id": "a", "v": 1 } ] }' > "$C/data.json"
+printf '%s\n' '{ "facts": { "data.json": [["items","id"]] }, "zones": [ {"path":"","visibility":"public","audience":"world","intent":"public","rules":["no-machine-local-paths"]} ], "seed": [] }' > "$C/.true-up.json"
+git -C "$C" add -A && git -C "$C" -c user.email=t@t -c user.name=t commit -qm init
+$TU --repo "$C" >/dev/null 2>&1
+$TU --repo "$C" --check --committed >/dev/null 2>&1; rc=$?; [ "$rc" -ne 0 ] && ok "HIGH-3: --check --committed FAILS when the graph is untracked" || no "HIGH-3: untracked graph must fail --committed"
+$TU --repo "$C" --check >/dev/null 2>&1; rc=$?; [ "$rc" -eq 0 ] && ok "HIGH-3: plain --check (working-tree freshness) passes on a fresh on-disk graph" || no "HIGH-3: worktree --check must pass when fresh"
+git -C "$C" add .true-up/depgraph.json && git -C "$C" -c user.email=t@t -c user.name=t commit -qm graph
+$TU --repo "$C" --check --committed >/dev/null 2>&1; rc=$?; [ "$rc" -eq 0 ] && ok "HIGH-3: --check --committed passes when the committed graph is fresh" || no "HIGH-3: fresh committed graph must pass"
+printf '%s\n' '{ "items": [ { "id": "a", "v": 999 } ] }' > "$C/data.json"
+$TU --repo "$C" --check --committed >/dev/null 2>&1; rc=$?; [ "$rc" -ne 0 ] && ok "HIGH-3: --check --committed catches a STALE committed blob" || no "HIGH-3: stale committed graph must fail"
+
+# T15 — LIMITATION fix: a declared (seed) edge to a code file (e.g. .py) is not silently dropped
+P="$(mktemp -d)"; git -C "$P" init -q
+printf '%s\n' 'def f(): pass' > "$P/registry.py"
+printf '%s\n' '# doc' 'derived from the registry' > "$P/doc.md"
+printf '%s\n' '{ "zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}], "seed":[ {"from":"doc.md","to":"registry.py","kind":"derives-facts-from"} ] }' > "$P/.true-up.json"
+git -C "$P" add -A && git -C "$P" -c user.email=t@t -c user.name=t commit -qm init
+$TU --repo "$P" >/dev/null 2>&1
+grep -q 'registry.py' "$P/.true-up/depgraph.json" && ok "seed edge to a .py creates a node (edge not dropped)" || no "seed edge to code file must resolve"
+$TU --repo "$P" --impact registry.py 2>/dev/null | grep -q 'doc.md' && ok "--impact on a code source shows its dependent" || no "--impact .py must show dependent"
+
+# T16 — init scaffolds a config and refuses to clobber one
+E="$(mktemp -d)"; git -C "$E" init -q
+$TU --repo "$E" init >/dev/null 2>&1; rc=$?; { [ "$rc" -eq 0 ] && [ -f "$E/.true-up.json" ]; } && ok "init scaffolds .true-up.json" || no "init must write .true-up.json"
+$TU --repo "$E" init >/dev/null 2>&1; rc=$?; [ "$rc" -ne 0 ] && ok "init refuses to overwrite an existing config" || no "init must not overwrite"
+
+# T17 — empty-graph NOTICE: distinguish "nothing changed" from "you declared nothing to track"
+out="$($TU --repo "$E" 2>&1)"
+echo "$out" | grep -q 'NOTICE' && ok "empty-graph NOTICE warns when nothing is declared (inert graph)" || no "must warn on an inert graph"
+
+# T18 — HIGH-3 hygiene: --check --committed on an untracked graph must not leak raw git "fatal:" noise
+# (P's graph was built in T15 but never committed -> untracked). stderr only:
+err="$($TU --repo "$P" --check --committed 2>&1 1>/dev/null)"
+echo "$err" | grep -q 'fatal:' && no "blob() must suppress git fatal: noise on untracked graph" || ok "--check --committed (untracked) emits no raw git fatal: noise"
+
+# T19 — cross-repo hygiene: a stale-graph regenerate hint must be generic, not an ugly ../.. engine path
+# (C's on-disk graph is stale after T14 changed data.json). stderr only:
+err="$($TU --repo "$C" --check 2>&1 1>/dev/null)"
+echo "$err" | grep -q '\.\./\.\.' && no "cross-repo regenerate hint leaks a ../.. path" || ok "cross-repo regenerate hint is generic (no ../.. path)"
 
 echo
 echo "engine tests: ${pass} passed, ${fail} failed"

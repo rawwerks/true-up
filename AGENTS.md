@@ -12,7 +12,7 @@ internal corpus where it was proven; this repo is the standalone, repo-agnostic 
 
 ```
 bin/true-up        thin CLI entry → lib/engine.mjs
-lib/engine.mjs     the engine: build / --check[ --committed] / --impact / run / --policy / --externalities / init / --help
+lib/engine.mjs     the engine: build / --check[ --committed] / --impact / --policy / --externalities / --verify-scope / run / init / capabilities / --version / --help (every read-side cmd takes --json)
 tests/engine.sh    fixture-based regression harness (synthesizes a target repo, runs the real CLI)
 docs/CONFIG.md     the .true-up.json schema + the marker/anchor conventions
 examples/          an example .true-up.json
@@ -30,9 +30,13 @@ Verify against `lib/engine.mjs` before changing any of this.
 - `true-up --impact <path|path#fact>… [--since <ref>]` — who is made stale; exit 0. A bad `--since` ref exits 2 (not a silent "0 dependents"); no graph on disk exits 2.
 - `true-up --policy [--report]` — zone/visibility lint. **EXIT 1 on violations**; `--report` forces exit 0 (report-only).
 - `true-up --externalities [--report]` — machine-local-path leak scan. **EXIT 1 on leaks**; `--report` forces exit 0.
+- `true-up --verify-scope [--since <ref>]` — anti-code-golf gate: exit 1 (naming the file) if a changed file is not explained by the graph (the changed source, its regenerated/advisory dependents, or the cache). Vacuous (exit 0, stderr NOTE) on a no-edge repo. Bad ref exits 2.
 - `true-up run [--since <ref>] [--strict]` — deterministic truing-up loop; exit 1 if not GREEN (regen failed / policy violations / depgraph stale), exit 2 under `--strict` when GREEN but advisory prose review is still pending. Verify reads the `--policy` child's EXIT CODE, not its stdout.
 - `true-up init` — scaffold a starter `.true-up.json`; exit 1 if one already exists (won't overwrite).
-- `true-up --help | -h | help` — prints the command table and **writes nothing** (exit 0). An **unknown command exits 2 and writes nothing** — it does NOT fall through to a silent build+write into the target repo.
+- `true-up capabilities` — machine-readable contract (commands, flags, exit-code dictionary); always JSON; exit 0. Axiom 9: an agent reads the contract from the tool, not out-of-band.
+- `true-up --version | -v` — print the version; exit 0.
+- `true-up --help | -h | help` — prints the command table and **writes nothing** (exit 0). An **unknown command exits 2 and writes nothing** (with a `did you mean: …` suggestion) — it does NOT fall through to a silent build+write into the target repo.
+- **`--json` on every read-side command** — a single JSON object on **stdout** (data only; diagnostics on stderr, Axiom 4) so workflows parse the result instead of regex-scraping. The exit code is unchanged by `--json`.
 
 "The workflow today" = `true-up run`. The agentic prose-rewrite `/workflow` is roadmap, not built (see Roadmap).
 

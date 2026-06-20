@@ -12,8 +12,8 @@ pass=0 ; fail=0
 ok(){ printf '  \033[32mPASS\033[0m %s\n' "$1"; pass=$((pass + 1)); }
 no(){ printf '  \033[31mFAIL\033[0m %s\n' "$1"; fail=$((fail + 1)); }
 
-FIX="$(mktemp -d)"; H=""; C=""; P=""; E=""
-trap 'rm -rf "$FIX" "$H" "$C" "$P" "$E"' EXIT
+FIX="$(mktemp -d)"; H=""; C=""; P=""; E=""; V=""; M=""
+trap 'rm -rf "$FIX" "$H" "$C" "$P" "$E" "$V" "$M"' EXIT
 
 # --- synthesize a target repo: steward data + a generated view + an anchored doc + a symlink ---
 git -C "$FIX" init -q
@@ -156,6 +156,28 @@ $TU --repo "$V" --verify-scope --since HEAD >/dev/null 2>&1; rc=$?; [ "$rc" -eq 
 printf '%s\n' '# leaf' 'a is 2 now (an out-of-scope tidy).' > "$V/leaf.md"
 out="$($TU --repo "$V" --verify-scope --since HEAD 2>&1)"; rc=$?
 { [ "$rc" -ne 0 ] && echo "$out" | grep -q 'leaf.md'; } && ok "--verify-scope FAILS on an out-of-blast-radius (code-golf) edit, naming it" || no "--verify-scope must catch out-of-scope edits"
+
+# T21 — must-be-ciphertext is STRUCTURE-AWARE: a plaintext file that merely MENTIONS sops must FAIL
+M="$(mktemp -d)"; git -C "$M" init -q; mkdir -p "$M/private"
+printf '%s\n' '# notes' 'we use sops to encrypt this directory.' > "$M/private/notes.md"
+printf '%s\n' '{ "zones": [ {"path":"private/","visibility":"private","audience":"team","intent":"enc","rules":["must-be-ciphertext"]}, {"path":"","visibility":"public","audience":"world","intent":"pub","rules":[]} ] }' > "$M/.true-up.json"
+git -C "$M" add -A && git -C "$M" -c user.email=t@t -c user.name=t commit -qm init
+$TU --repo "$M" --policy --report 2>&1 | grep -q 'must-be-ciphertext' && ok "must-be-ciphertext FLAGS plaintext that merely mentions 'sops'" || no "must-be-ciphertext must reject plaintext mentioning sops"
+printf '%s\n' 'data: ENC[AES256_GCM,data:Zm9v,iv:YmFy,tag:YmF6,type:str]' 'sops:' '    mac: ENC[AES256_GCM,data:abc,type:str]' > "$M/private/notes.md"
+$TU --repo "$M" --policy --report 2>&1 | grep -q 'must-be-ciphertext' && no "real ENC[…] ciphertext must pass must-be-ciphertext" || ok "real ENC[…] ciphertext passes must-be-ciphertext"
+
+# T22 — ergonomics: --version + capabilities (the machine-readable contract, Axiom 9)
+$TU --repo "$FIX" --version 2>&1 | grep -qE '[0-9]+\.[0-9]+' && ok "--version prints a version" || no "--version must print a version"
+$TU --repo "$FIX" capabilities 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.exit_codes&&d.commands&&d.version?0:1)' && ok "capabilities is valid JSON with version/commands/exit_codes" || no "capabilities must be a valid JSON contract"
+
+# T23 — ergonomics: --json on read-side gates is pure, valid JSON on stdout (Axiom 8/4)
+$TU --repo "$FIX" --policy --json --report 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(Array.isArray(d.violations)&&typeof d.count==="number"?0:1)' && ok "--policy --json is valid structured JSON" || no "--policy --json must be valid JSON"
+$TU --repo "$FIX" --externalities --json --report 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(Array.isArray(d.hits)?0:1)' && ok "--externalities --json is valid structured JSON" || no "--externalities --json must be valid JSON"
+$TU --repo "$FIX" --impact --json 'data.json#items.a' 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(Array.isArray(d.advisory)?0:1)' && ok "--impact --json is valid structured JSON" || no "--impact --json must be valid JSON"
+
+# T24 — ergonomics: a mistyped command gets a 'did you mean' suggestion (Axiom 7 intent inference)
+err="$($TU --repo "$FIX" --externalites 2>&1)"; rc=$?
+{ [ "$rc" -eq 2 ] && echo "$err" | grep -q 'did you mean: --externalities'; } && ok "did-you-mean suggests the nearest command on a typo" || no "must suggest nearest command on a typo"
 
 echo
 echo "engine tests: ${pass} passed, ${fail} failed"

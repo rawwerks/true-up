@@ -71,7 +71,11 @@ true-up run --since HEAD~1       # detect → regenerate mechanical → advisory
 | `run [--since <ref>] [--strict]` | the deterministic loop: detect → regenerate mechanical dependents → print the advisory worklist → verify | 1 if not green; `--strict` exits 2 when advisory review is still pending |
 | `--policy [--report]` | lint each file against its declared zone's rules (leaks, visibility, public→private deps, ciphertext) | **1 on violations**; `--report` forces 0 |
 | `--externalities [--report]` | machine-local path leaks in public files | **1 on leaks**; `--report` forces 0 |
+| `--verify-scope [--since <ref>]` | anti-code-golf gate: every changed file must be explained by the graph | 1 if an edit is out of the blast radius |
 | `init` | scaffold a starter `.true-up.json` (refuses to overwrite an existing one) | 0 (1 if one exists) |
+| `capabilities` | machine-readable contract: commands, flags, exit-code dictionary (always JSON) | 0 |
+| `--version` / `-v` | print the version | 0 |
+| `<read-cmd> --json` | structured JSON on stdout for any read-side command (data only; diagnostics on stderr) | as the command |
 | `--help` / `-h` / `help` | print this command table; **writes nothing** | 0 |
 | `--repo <path>` | operate on a target repo (default: `$TRUE_UP_REPO` \| git toplevel of CWD \| CWD) | — |
 

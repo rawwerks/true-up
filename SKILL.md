@@ -49,9 +49,17 @@ true-up --check --committed      # drift gate on the COMMITTED/STAGED graph blob
 true-up --policy                 # zone/visibility lint (exit 1 on violations; --report = exit 0)
 true-up --externalities          # machine-local-path leak scan (exit 1 on leaks; --report = exit 0)
 true-up init                     # scaffold a starter .true-up.json (exit 1 if one already exists)
+true-up capabilities             # machine-readable contract (commands, flags, exit codes) — always JSON
+true-up <read-cmd> --json        # structured JSON on stdout for --policy/--externalities/--impact/--check/--verify-scope
+true-up --version                # print the version
 true-up --help                   # command table; writes NOTHING (exit 0)
 true-up --repo <path>            # target another repo
 ```
+
+**Structured output (Axiom 8).** Every read-side command takes `--json` → a single JSON object on
+**stdout** (data only; diagnostics go to stderr), so an agent/workflow parses the result instead of
+scraping human text. `true-up capabilities` returns the whole contract (commands, flags, the exit-code
+dictionary) so you never have to remember it. A mistyped command gets a `did you mean: …` suggestion.
 
 `run` is the deterministic gate: it regenerates mechanical dependents, prints the advisory worklist,
 and verifies (policy clean + on-disk graph in sync). The CLI never edits prose. The **agentic layer**

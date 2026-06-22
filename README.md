@@ -175,9 +175,12 @@ granularity without any of the above.
 
 ## Status
 
-**v0.1.0** — the deterministic engine, fully tested against a synthetic repo (`npm test`).
-On the roadmap: the optional Claude Code `/workflow` that *applies* the advisory rewrites,
-an installer that wires the git hooks + CI into a target repo, and mycelium note enrichment.
+**v0.1.0** — the deterministic engine, fully tested against a synthetic repo (`npm test`). true-up
+**dogfoods itself, marker-free**: its command surface is generated to a `meta/contract.json` steward,
+the docs derive-facts-from it via sidecar `seed` (no inline markers), and `npm test` + CI run
+`true-up gate` on true-up's own repo. See [AGENTS.md](AGENTS.md) → "Self-dogfood".
+On the roadmap: the optional Claude Code `/workflow` that *applies* the advisory rewrites, and
+mycelium note enrichment.
 See [AGENTS.md](AGENTS.md) for the architecture and invariants.
 
 ## License

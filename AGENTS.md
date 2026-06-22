@@ -18,8 +18,11 @@ lib/symbols.mjs    Tier 2 (OPTIONAL): tree-sitter symbol extraction. Static-impo
 tests/engine.sh    fixture-based regression harness (synthesizes a target repo, runs the real CLI)
 docs/CONFIG.md     the .true-up.json schema + the marker/anchor conventions
 examples/          an example .true-up.json
-package.json       optionalDependencies: web-tree-sitter + tree-sitter-wasms (EXACT-pinned, Tier 2 only)
-.true-up.json      true-up's own config (it trues up itself — dogfood)
+meta/build-contract.mjs  generates meta/contract.json from `true-up capabilities`; --check gates engine→contract drift
+meta/contract.json the command-surface STEWARD (generated, committed) — true-up trues itself against it
+.github/workflows/true-up.yml  CI: npm test (fixtures + self-gate) + meta/build-contract.mjs --check
+package.json       optionalDependencies: web-tree-sitter + tree-sitter-wasms (EXACT-pinned, Tier 2 only); posttest = self-gate
+.true-up.json      true-up's own config — it trues up ITSELF, MARKER-FREE (steward + sidecar seed; see "Self-dogfood")
 ```
 
 ## CLI surface + exit contract (the gates exit nonzero)
@@ -93,6 +96,28 @@ Verify against `lib/engine.mjs` before changing any of this.
 
 Tests ARE the harness: every invariant and every past incident is a case in `tests/engine.sh`.
 `npm test` runs it (sub-minute, fixture-based). When you fix a bug, add the test that catches it.
+
+## Self-dogfood (true-up trues up ITSELF, marker-free)
+
+true-up is part of developing true-up — and it does so **without a single inline marker in its own
+files** (every edge is a sidecar `seed`). The wiring:
+
+- **Source of truth → steward.** The command surface lives in the engine (`HELP` + `capabilities`).
+  `meta/build-contract.mjs` generates `meta/contract.json` (a committed steward, one fact per command)
+  from `true-up capabilities`. `meta/build-contract.mjs --check` is the **engine→contract drift gate**
+  (fails if the steward is stale vs the engine) — run in `npm test` posttest AND CI.
+- **Docs → contract (marker-free).** `.true-up.json` `seed` declares the dependency: `README.md`
+  derives-facts-from each `meta/contract.json#commands.<name>` (fact-granular — change one command's
+  contract and `true-up --impact meta/contract.json#commands.<name>` flags exactly README); `AGENTS.md`
+  and `SKILL.md` derive-facts-from the whole `meta/contract.json` (file-granular). No `<!-- fact: -->`
+  anchors anywhere — the build proves it (`byDirectionBasis` is all `declared`).
+- **The tool gates itself.** `npm test` posttest runs `true-up gate` (`--check` + `--policy` +
+  `--externalities`) on true-up's own repo; CI (`.github/workflows/true-up.yml`) runs `npm test` +
+  `meta/build-contract.mjs --check`. The read-only invariant (Load-bearing invariant 8) means this is
+  safe — gating never edits content.
+- **When you add/rename/change a command:** regenerate the steward (`npm run contract`), and if it's a
+  new command, add its `seed` line(s) so its doc-drift is tracked. CI's `--check` will remind you if you
+  forget to regenerate.
 
 ### Durable lessons from the telltail dogfooding round
 

@@ -5,7 +5,9 @@
   "type": "module",
   "bin": { "true-up": "bin/true-up" },
   "scripts": {
-    "test": "bash tests/engine.sh"
+    "test": "bash tests/engine.sh",
+    "posttest": "node bin/true-up >/dev/null 2>&1 && node bin/true-up gate && node meta/build-contract.mjs --check",
+    "contract": "node meta/build-contract.mjs"
   },
   "engines": { "node": ">=18" },
   "optionalDependencies": {

@@ -1,6 +1,26 @@
 {
-  "_comment": "true-up's own config — it trues up itself (dogfood). No stewards/generated docs of its own yet; the public-surface zone keeps machine-local paths out of its files.",
+  "_comment": "true-up trues up ITSELF, MARKER-FREE. The command surface is the source-of-truth, generated to meta/contract.json (steward) by `node meta/build-contract.mjs` from `true-up capabilities`. The docs that restate it derive-facts-from those command facts via `seed` below — NO inline markers in any file. Change a command's contract -> `true-up --impact meta/contract.json#commands.<name>` (or `run --since`) flags exactly the docs that cite it. The contract steward's own freshness vs the engine is gated by `meta/build-contract.mjs --check` (CI). The public-surface zone keeps machine-local paths out.",
+  "facts": {
+    "meta/contract.json": [["commands", "name"]]
+  },
   "zones": [
     { "path": "", "visibility": "public", "audience": "world", "intent": "open-kimono", "rules": ["no-machine-local-paths"] }
+  ],
+  "seed": [
+    { "from": "README.md", "to": "meta/contract.json#commands.build" },
+    { "from": "README.md", "to": "meta/contract.json#commands.--check" },
+    { "from": "README.md", "to": "meta/contract.json#commands.--impact" },
+    { "from": "README.md", "to": "meta/contract.json#commands.run" },
+    { "from": "README.md", "to": "meta/contract.json#commands.gate" },
+    { "from": "README.md", "to": "meta/contract.json#commands.hooks" },
+    { "from": "README.md", "to": "meta/contract.json#commands.--policy" },
+    { "from": "README.md", "to": "meta/contract.json#commands.--externalities" },
+    { "from": "README.md", "to": "meta/contract.json#commands.--verify-scope" },
+    { "from": "README.md", "to": "meta/contract.json#commands.init" },
+    { "from": "README.md", "to": "meta/contract.json#commands.capabilities" },
+    { "from": "README.md", "to": "meta/contract.json#commands.--version" },
+    { "from": "README.md", "to": "meta/contract.json#commands.--help" },
+    { "from": "AGENTS.md", "to": "meta/contract.json" },
+    { "from": "SKILL.md", "to": "meta/contract.json" }
   ]
 }

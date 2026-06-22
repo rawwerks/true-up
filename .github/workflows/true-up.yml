@@ -1,0 +1,19 @@
+name: true-up
+on: [push, pull_request]
+
+# true-up dogfoods itself: the fixture suite + the tool's own gate run on every push/PR.
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # optionalDependencies (web-tree-sitter + tree-sitter-wasms) are needed for the Tier-2 symbol tests
+      - run: npm install
+      # `npm test` = the fixture suite (tests/engine.sh) + posttest, which runs `true-up gate`
+      # (--check + --policy + --externalities) on true-up's OWN repo — the tool gating itself.
+      - run: npm test
+      # contract steward must stay in sync with the engine's capabilities (C: self doc-drift tracking)
+      - run: node meta/build-contract.mjs --check

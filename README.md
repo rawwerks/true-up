@@ -26,11 +26,27 @@ optional agent layer only ever *proposes* minimal prose edits.
 
 ## Install
 
+**One-line installer** — puts a `true-up` launcher on your PATH (requires Node ≥ 18; the core + Tier 1
+span anchors are zero-dependency, add `--with-symbols` for the optional tree-sitter layer):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rawwerks/true-up/main/install.sh | bash
+```
+
+While the repo is private/pre-release, install from a checkout instead (same script):
+
+```sh
+git clone <this-repo> true-up && bash true-up/install.sh        # add --with-symbols for Tier 2
+```
+
+`bash install.sh --uninstall` reverts it. No install is required at all, though — run the entry
+directly against any target:
+
 ```sh
 git clone <this-repo> true-up
 ```
 
-No global install is required. Run it cross-repo by pointing `--repo` at the target:
+Run it cross-repo by pointing `--repo` at the target:
 
 ```sh
 node <path-to>/true-up/bin/true-up --repo <target-repo>           # build the target's graph

@@ -127,11 +127,24 @@ The optional `[rule]` (e.g. `no-machine-local-paths` or `no-private-operational-
 suppression to that one rule; omit it to suppress all rules on that line. Prefer code formatting
 over a directive where you can — reserve the directive for prose that genuinely needs the bare path.
 
-## `seed` — declared edges
+## `seed` — declared edges (the marker-free path)
 
-Directed edges the engine can't infer: `{ from: dependent, to: source-of-truth, kind: "derives-facts-from" }`.
-Prefer promoting these to inline fact-anchors (`<!-- fact: path#fact -->`) over time — that upgrades
-a file-level *advisory* edge to a fact-level one (early-cutoff).
+Directed edges declared in config, so your content stays pristine — **no inline markers**:
+`{ from: <dependent>, to: <source-of-truth>, kind: "derives-facts-from" }`.
+
+- **File-granular** — `to` is a file path; the dependent stales when that whole file changes.
+- **Fact-granular (marker-free)** — `to` is `path#fact`; the dependent stales only when **that fact**
+  moves (early-cutoff), with **no `<!-- fact: -->` marker in the dependent**. The `fact` is addressed
+  exactly as the engine mints fact ids: a JSON `arrayProp.key` (steward), a span `id`
+  (`true-up:anchor`), or a tree-sitter `Symbol` name (`"symbols": true`). Examples:
+  `{ "from": "README.md", "to": "data/verdicts.json#frameworks.ax" }` ·
+  `{ "from": "guide.md", "to": "src/app.py#parse_config" }`.
+
+A `seed` whose `from`/`to` does not resolve (untracked file, or a fact that doesn't exist) is a **hard
+error** — fail-loud parity with inline anchors, never a silently-dropped edge. Inline `<!-- fact: -->`
+anchors remain available for authors who prefer a co-located, greppable citation that travels with the
+prose; both forms resolve to the identical edge. Neither survives a source rename automatically — the
+sidecar's edge is just an auditable one-line `.true-up.json` diff a reviewer signs off.
 
 ## `out` — graph path + the commit-optional model
 

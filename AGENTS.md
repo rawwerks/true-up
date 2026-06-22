@@ -75,6 +75,19 @@ Verify against `lib/engine.mjs` before changing any of this.
    graph "is a committed JSON file" unconditionally — that was an overclaim; it contradicted the shipped
    `.gitignore`. (A derived SQLite cache is a future option *only* for query-at-scale — never the source
    of truth.)
+8. **Read-only wrt content (the write invariant).** true-up NEVER modifies/creates/deletes a content
+   file. Its entire write surface is three paths: `.true-up/depgraph.json` (bare build), `.true-up.json`
+   (`init`, no-clobber), and `.git/hooks/*` (opt-in `hooks --install`). `run` mutates content ONLY by
+   executing user-declared external generators (`execFileSync` of the edge's `via`) — true-up's own code
+   authors no prose/code (it emits an advisory worklist; "this CLI never edits prose"). `--no-write` (a
+   global, like `--json`) persists NOTHING — build computes in memory, `--impact`/`run` fall back to an
+   in-memory build, `run --no-write` is a dry-run. ENFORCED by the T35 keystone (snapshot every file
+   before/after every read-side command → zero content-byte change) + T38 (`--no-write` writes nothing).
+   Edges are declarable **marker-free** via fact-granular `seed` (`to: path#fact` → JSON-key / span /
+   symbol), with fail-loud parity (a bad seed target is a hard error, not a dropped edge). Do NOT add a
+   parallel `.true-up.facts.json` hash sidecar — `--check --committed` already IS the stored-expected-hash
+   verify-don't-regenerate gate (the committed graph blob holds every fact's expected hash); a second
+   sidecar is a deletion-blind, merge-conflict-prone second source of truth (decision: rejected).
 
 ## Harness
 

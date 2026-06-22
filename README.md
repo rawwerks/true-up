@@ -23,6 +23,12 @@ optional agent layer only ever *proposes* minimal prose edits.
   regenerable cache. If you want drift to fail CI, **commit the graph** and gate on
   `--check --committed` (see below); otherwise treat it as a build artifact and use `--check`
   for working-tree freshness.
+- **Read-only by design.** true-up never modifies, creates, or deletes your content. Its *entire* write
+  surface is `.true-up/` (the graph), `.true-up.json` (`init`, no-clobber), and `.git/hooks/` (opt-in
+  `hooks --install`). Declare dependencies **marker-free** in `.true-up.json` `seed` (no comments in your
+  files), and run with `--no-write` for a fully stateless audit that persists *nothing* — not even the
+  graph. Enforced, not just claimed: a keystone test snapshots every file before/after every command and
+  fails on any content byte change.
 
 ## Install
 
@@ -98,6 +104,7 @@ true-up run --since HEAD~1       # detect → regenerate mechanical → advisory
 | `<read-cmd> --json` | structured JSON on stdout for any read-side command (data only; diagnostics on stderr) | as the command |
 | `--help` / `-h` / `help` | print this command table; **writes nothing** | 0 |
 | `--repo <path>` | operate on a target repo (default: `$TRUE_UP_REPO` \| git toplevel of CWD \| CWD) | — |
+| `--no-write` | global: compute in memory and persist **nothing** (not even `.true-up/`); `build --json` emits the graph; `run --no-write` is a dry-run preview | as the command |
 
 `--policy` and `--externalities` are **gates**: they exit 1 when they find something, so they
 fail a pre-commit hook or CI step out of the box. Pass `--report` to inspect findings without
@@ -153,9 +160,11 @@ A doc can derive from *code* in any language, fact-granular. Three ways to expos
    **fails loud** (exit 2) rather than silently producing a different, non-deterministic graph.
 
 In all three, **edges stay explicit** — tree-sitter (and span scanning) only produce better *nodes*;
-a doc must still anchor (`<!-- fact: … -->`) or be a declared `seed` for an edge to exist. Correlation
-never assigns the arrow. A code file is also a valid **seed-edge endpoint** at file granularity
-without any of the above.
+a doc must still cite the fact for an edge to exist, and correlation never assigns the arrow. Cite it
+**either way**: an inline `<!-- fact: path#id -->` anchor (co-located, greppable), **or** — marker-free —
+a `seed` entry in `.true-up.json` (`{ "from": "doc.md", "to": "path#id" }`), so your files stay pristine.
+Both resolve to the identical fact-level edge. A code file is also a valid **seed endpoint** at file
+granularity without any of the above.
 
 ## Scope and limitations
 

@@ -57,6 +57,7 @@ true-up --externalities          # machine-local-path leak scan (exit 1 on leaks
 true-up init                     # scaffold a starter .true-up.json (exit 1 if one already exists)
 true-up capabilities             # machine-readable contract (commands, flags, exit codes) — always JSON
 true-up <read-cmd> --json        # structured JSON on stdout for --policy/--externalities/--impact/--check/--verify-scope
+true-up --no-write               # fully stateless: compute in memory, persist NOTHING (not even .true-up/); build --json emits the graph
 true-up --version                # print the version
 true-up --help                   # command table; writes NOTHING (exit 0)
 true-up --repo <path>            # target another repo
@@ -144,9 +145,13 @@ A doc can derive from code at fact granularity, three ways:
   `web-tree-sitter` + `tree-sitter-wasms` deps (`npm install` in the tool dir); enabled-but-missing
   fails loud (exit 2), never a silent symbol-less graph.
 
-In every case **edges stay explicit** — extraction only produces better *nodes*; a doc must anchor
-(`<!-- fact: … -->`) or a `seed` must declare the edge. Correlation never assigns the arrow. A code
-file is also a valid file-granularity **seed** endpoint without any of these. If you declare no
+In every case **edges stay explicit** — extraction only produces better *nodes*; a doc must cite the
+fact for an edge to exist (correlation never assigns the arrow). Cite it **marker-free** via a
+fact-granular `seed` in `.true-up.json` — `{ "from": "doc.md", "to": "src/app.py#parse_config" }` (the
+`to` is a JSON-key / span-id / symbol) — so no inline marker touches your files; or use an inline
+`<!-- fact: path#id -->` anchor if you prefer a co-located citation. Both resolve to the identical edge,
+and a `seed` to a nonexistent file/fact is a hard error (fail-loud). A code file is also a valid
+file-granularity **seed** endpoint without any of these. If you declare no
 facts / anchors / symbols / seed, the build prints a NOTICE: the drift layer is inert (it passes
 `--check` trivially) until you give it something to track.
 

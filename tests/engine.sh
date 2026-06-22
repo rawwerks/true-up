@@ -12,8 +12,8 @@ pass=0 ; fail=0
 ok(){ printf '  \033[32mPASS\033[0m %s\n' "$1"; pass=$((pass + 1)); }
 no(){ printf '  \033[31mFAIL\033[0m %s\n' "$1"; fail=$((fail + 1)); }
 
-FIX="$(mktemp -d)"; H=""; C=""; P=""; E=""; V=""; M=""; S=""; Y=""; Z=""; G=""; K=""
-trap 'rm -rf "$FIX" "$H" "$C" "$P" "$E" "$V" "$M" "$S" "$Y" "$Z" "$G" "$K"' EXIT
+FIX="$(mktemp -d)"; H=""; C=""; P=""; E=""; V=""; M=""; S=""; Y=""; Z=""; G=""; K=""; SD=""
+trap 'rm -rf "$FIX" "$H" "$C" "$P" "$E" "$V" "$M" "$S" "$Y" "$Z" "$G" "$K" "$SD"' EXIT
 
 # --- synthesize a target repo: steward data + a generated view + an anchored doc + a symlink ---
 git -C "$FIX" init -q
@@ -319,6 +319,65 @@ out="$($TU --repo "$K" 2>&1)"; rc=$?
 printf '%s' '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}]}' > "$K/.true-up.json"
 $TU --repo "$K" >/dev/null 2>&1; rc=$?; [ "$rc" -eq 0 ] && ok "default (no strictSpans): the same malformed span is lenient (no self-trip)" || no "default must stay lenient on malformed spans"
 rm -f "$K/dup.py"
+
+# T35 — THE READ-ONLY INVARIANT (keystone): no read-side command may modify, create, or delete ANY
+# file outside .true-up/ (and .git/). This turns "true-up never touches your content — it writes only
+# its own .true-up/ graph (+ .git/hooks on explicit hooks --install)" from a claim into an enforced gate.
+# The before/after content hash subsumes a marker-injection check: an injected <!-- fact: -->/true-up:anchor
+# would BE a content-byte change and trip this. --no-write build is included (must also touch nothing).
+fp(){ ( cd "$1" && find . -type f -not -path './.git/*' -not -path './.true-up/*' | sort | while read -r f; do printf '%s:' "$f"; sha256sum "$f" | cut -d' ' -f1; done ); }
+RO_OK=1
+for cmd in "" "--no-write" "--check" "--impact data.json#items.a" "--policy --report" "--externalities --report" "--verify-scope --since HEAD" "gate" "capabilities" "--version" "--help"; do
+  b="$(fp "$FIX")"; $TU --repo "$FIX" $cmd >/dev/null 2>&1; a="$(fp "$FIX")"
+  [ "$b" = "$a" ] || { RO_OK=0; printf '    content CHANGED by: true-up %s\n' "${cmd:-(build)}"; }
+done
+[ "$RO_OK" = 1 ] && ok "INVARIANT: no read-side command touches any content file (writes only .true-up/)" || no "read-side commands must not modify content outside .true-up/"
+[ -f "$FIX/.true-up/depgraph.json" ] && ok "INVARIANT: build's only write is its graph under .true-up/" || no "build must write its graph under .true-up/"
+
+# T36 — MARKER-FREE fact-granular seed: a doc depends on a SPECIFIC fact via .true-up.json `seed`
+# (to: path#fact), with NO inline <!-- fact: --> marker in the doc. Early-cutoff must still hold.
+SD="$(mktemp -d)"; git -C "$SD" init -q
+printf '%s\n' '{ "items": [ { "id": "a", "v": 1 }, { "id": "b", "v": 2 } ] }' > "$SD/data.json"
+printf '%s\n' '# Guide' 'a is 1.' > "$SD/doc.md"   # deliberately NO inline anchor
+printf '%s' '{ "facts": { "data.json": [["items","id"]] }, "zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}], "seed":[ {"from":"doc.md","to":"data.json#items.a","kind":"derives-facts-from"} ] }' > "$SD/.true-up.json"
+git -C "$SD" add -A && git -C "$SD" -c user.email=t@t -c user.name=t commit -qm i
+$TU --repo "$SD" >/dev/null 2>&1
+$TU --repo "$SD" --impact 'data.json#items.a' 2>/dev/null | grep -q 'doc.md' && ok "marker-free: a fact-granular seed links doc→fact with NO inline marker" || no "fact-granular seed must resolve marker-free"
+git -C "$SD" add -A && git -C "$SD" -c user.email=t@t -c user.name=t commit -qm base
+printf '%s\n' '{ "items": [ { "id": "a", "v": 1 }, { "id": "b", "v": 999 } ] }' > "$SD/data.json"
+$TU --repo "$SD" >/dev/null 2>&1
+$TU --repo "$SD" --impact --since HEAD 2>/dev/null | grep -q 'doc.md' && no "marker-free seed early-cutoff: an unrelated fact (items.b) must NOT stale doc.md" || ok "marker-free seed: early-cutoff holds (unrelated fact change does not stale the doc)"
+git -C "$SD" checkout -- data.json 2>/dev/null
+printf '%s\n' '{ "items": [ { "id": "a", "v": 5 }, { "id": "b", "v": 2 } ] }' > "$SD/data.json"
+$TU --repo "$SD" >/dev/null 2>&1
+$TU --repo "$SD" --impact --since HEAD 2>/dev/null | grep -q 'doc.md' && ok "marker-free seed: changing the CITED fact stales the doc (--since)" || no "marker-free seed: cited-fact change must stale the doc"
+git -C "$SD" checkout -- data.json 2>/dev/null; $TU --repo "$SD" >/dev/null 2>&1
+
+# T37 — fail-loud parity: a seed `to` naming a nonexistent fact or file is a hard error, not a
+# silently-dropped edge (closes the one place sidecar edges were LESS safe than inline anchors).
+printf '%s' '{ "facts": { "data.json": [["items","id"]] }, "zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}], "seed":[ {"from":"doc.md","to":"data.json#items.NOPE"} ] }' > "$SD/.true-up.json"
+out="$($TU --repo "$SD" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'NOPE'; } && ok "fail-loud: a seed to a nonexistent fact errors (names it)" || no "bad seed fact target must fail-loud"
+printf '%s' '{ "zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}], "seed":[ {"from":"doc.md","to":"gone.json"} ] }' > "$SD/.true-up.json"
+out="$($TU --repo "$SD" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'gone.json'; } && ok "fail-loud: a seed to a nonexistent file errors (names it)" || no "bad seed file target must fail-loud"
+
+# T38 — --no-write: a fully-stateless audit that writes NOTHING — not even .true-up/. Query commands
+# fall back to an in-memory build instead of "build the graph first". (The owner's "truly no file edits".)
+rm -f "$FIX/.true-up/depgraph.json"; rmdir "$FIX/.true-up" 2>/dev/null
+$TU --repo "$FIX" --no-write >/dev/null 2>&1; rc=$?
+{ [ "$rc" -eq 0 ] && [ ! -e "$FIX/.true-up" ]; } && ok "--no-write: bare build writes NOTHING (no .true-up/ created)" || no "--no-write must not create .true-up/"
+$TU --repo "$FIX" --impact 'data.json#items.a' --no-write 2>/dev/null | grep -q 'doc.md' && ok "--no-write: --impact resolves via in-memory build (no on-disk graph, no exit 2)" || no "--impact --no-write must resolve in-memory"
+[ ! -e "$FIX/.true-up" ] && ok "--no-write: --impact wrote nothing either" || no "--impact --no-write must not write"
+$TU --repo "$FIX" --no-write --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.wrote===false&&d.graph&&Array.isArray(d.graph.edges)?0:1)' && ok "--no-write --json emits the in-memory graph (wrote:false)" || no "--no-write --json must emit the graph"
+$TU --repo "$FIX" >/dev/null 2>&1   # restore the on-disk graph for any later use
+
+# T39 — DETERMINISM: two builds over an unchanged tree produce a byte-identical graph (sorted, no
+# timestamps) — the basis of an honest --check and of --check --committed being the verify gate.
+$TU --repo "$FIX" >/dev/null 2>&1; g1="$(mktemp)"; cp "$FIX/.true-up/depgraph.json" "$g1"
+$TU --repo "$FIX" >/dev/null 2>&1
+cmp -s "$FIX/.true-up/depgraph.json" "$g1" && ok "DETERMINISM: rebuild is byte-identical (honest --check)" || no "build must be byte-deterministic"
+rm -f "$g1"
 
 echo
 echo "engine tests: ${pass} passed, ${fail} failed"

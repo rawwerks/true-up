@@ -1,7 +1,9 @@
 # `.true-up.json` — per-repo configuration
 
 Place `.true-up.json` (or `true-up.config.json`) at the repo root. Everything repo-specific lives
-here; the engine itself is generic. All keys are optional.
+here; the engine itself is generic. All keys are optional. An absent config is fine (defaults apply);
+a present-but-malformed config — unparseable JSON, a wrong-typed `facts`/`zones`/`seed`/`out`, or an
+`out` path that escapes the repo — is a hard error and exits 2 (`invalid-config`).
 
 ```json
 {
@@ -41,9 +43,10 @@ A content-hashed **fact node** (the unit that gives early-cutoff) comes from one
 So **code IS a valid fact-granular source-of-truth** (via #2 or #3), not just a coarse endpoint. A
 code file is *also* a valid `seed`-edge endpoint at file granularity (a declared edge to a tracked
 code file gets a minimal node so the edge isn't dropped) — use that when you want a whole file
-tracked rather than a specific region/symbol. When you declare no facts, anchors, symbols, or seed
-edges, build prints a NOTICE that the drift-detection layer is inert (`--check` passes trivially) —
-distinguishing "nothing changed" from "nothing declared to track".
+tracked rather than a specific region/symbol. When the graph has no dependency **edges** (a `seed`
+edge, a resolved inline `<!-- fact: -->` anchor, or a generated-by/symlink marker), build prints a
+NOTICE that the drift-detection layer is inert (`--check` passes trivially) — note that declaring
+facts/anchors/symbols only mints *nodes*; you still need an *edge* for the drift layer to be live.
 
 ## `symbols` — tree-sitter symbol extraction (opt-in)
 
@@ -168,9 +171,10 @@ exists for `--check --committed` to compare against.
 ## `init` — scaffold a starter config
 
 `true-up init` writes a starter `.true-up.json` at the repo root (empty `facts`, a private/
-SKILL.md/README.md/catch-all `zones` set, empty `seed`, and the default `out`), then exits 0. It
-refuses to overwrite an existing config (exit 1). Edit the scaffold to declare your repo's stewards,
-zones, and seed edges, then run `true-up`.
+SKILL.md/README.md/catch-all `zones` set, empty `seed`, and the default `out`), then exits 0. It is
+idempotent: re-running on an existing config leaves it untouched and still exits 0 ("already
+scaffolded" is success; exit 1 is reserved for gate violations). Edit the scaffold to declare your
+repo's stewards, zones, and seed edges, then run `true-up`.
 
 ## Conventions the engine reads from content (no config needed)
 

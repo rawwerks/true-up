@@ -5,7 +5,7 @@
 #
 # Or, from a local checkout (works while the repo is private / pre-release):
 #   bash install.sh                      # installs from this checkout
-#   bash install.sh --with-symbols       # + optional tree-sitter symbol extraction (Tier 2)
+#   bash install.sh --with-symbols       # + optional tree-sitter symbol extraction
 #
 # Flags:
 #   --with-symbols     also install the OPTIONAL tree-sitter deps (enables "symbols": true)
@@ -20,8 +20,8 @@
 #   --uninstall        remove true-up (launcher + home + skills)
 #   --help             this help
 #
-# true-up is a Node CLI (no compiled binary): the only requirement is Node >= 18. Tier 1 (span
-# anchors) and the whole core are zero-dependency; only `--with-symbols` pulls anything in.
+# true-up is a Node CLI (no compiled binary): the only requirement is Node >= 18. Span anchors and
+# the whole core are zero-dependency; only `--with-symbols` pulls anything in.
 set -euo pipefail
 shopt -s lastpipe 2>/dev/null || true
 umask 022
@@ -49,7 +49,7 @@ while [ $# -gt 0 ]; do
     --quiet) QUIET=1 ;;
     --no-gum) NO_GUM=1 ;;
     --uninstall) DO_UNINSTALL=1 ;;
-    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown flag: $1 (try --help)" >&2; exit 2 ;;
   esac
   shift
@@ -196,20 +196,20 @@ if [ "$FORCE" -eq 1 ] || [ ! -x "$PREFIX/true-up" ]; then
 fi
 
 # ---------------------------------------------------------------- optional Tier 2 deps
-SYMBOLS_STATUS="skipped (Tier 1 span anchors need no deps; re-run with --with-symbols to enable)"
+SYMBOLS_STATUS="skipped (span anchors need no deps; re-run with --with-symbols to enable)"
 if [ "$WITH_SYMBOLS" -eq 1 ]; then
   PM=""; command -v bun >/dev/null 2>&1 && PM="bun"; [ -z "$PM" ] && command -v npm >/dev/null 2>&1 && PM="npm"
   if [ -z "$PM" ]; then
-    warn "--with-symbols needs npm or bun; neither found. Tier 2 (tree-sitter symbols) NOT enabled."
+    warn "--with-symbols needs npm or bun; neither found. tree-sitter symbols NOT enabled."
     SYMBOLS_STATUS="FAILED (no npm/bun)"
   else
     # tree-sitter is an OPTIONAL PEER dep (kept out of the default install so `npx true-up` stays lean),
     # so it is not auto-installed — add the exact pins explicitly into the install dir.
     if [ "$PM" = "bun" ]; then run_step "Installing tree-sitter deps (bun)" bash -c 'cd "$1" && bun add web-tree-sitter@0.24.7 tree-sitter-wasms@0.1.13' _ "$TU_HOME"; else run_step "Installing tree-sitter deps (npm)" bash -c 'cd "$1" && npm install web-tree-sitter@0.24.7 tree-sitter-wasms@0.1.13' _ "$TU_HOME"; fi
     if [ -d "$TU_HOME/node_modules/web-tree-sitter" ] && [ -d "$TU_HOME/node_modules/tree-sitter-wasms" ]; then
-      ok "Tier 2 enabled (web-tree-sitter + tree-sitter-wasms)"; SYMBOLS_STATUS="enabled ($PM)"
+      ok "tree-sitter symbols enabled (web-tree-sitter + tree-sitter-wasms)"; SYMBOLS_STATUS="enabled ($PM)"
     else
-      warn "tree-sitter deps did not install — Tier 2 not enabled"; SYMBOLS_STATUS="install attempted (unverified)"
+      warn "tree-sitter deps did not install — symbols not enabled"; SYMBOLS_STATUS="install attempted (unverified)"
     fi
   fi
 fi

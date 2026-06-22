@@ -19,7 +19,8 @@ fact-level granularity) and computes — without guessing — what a change make
 ## Adopt it in a repo (one-time)
 
 1. Scaffold a starter config: `node bin/true-up --repo <target-repo> init` writes a `.true-up.json`
-   at the repo root (it refuses to overwrite an existing one — exit 1). Then edit it to declare your
+   at the repo root (idempotent — re-running on an existing config is a no-op and still exits 0; it
+   never overwrites). Then edit it to declare your
    **stewards** (source-of-truth data files to decompose into facts), **zones** (per-path
    visibility/intent + rules), and declared **seed** edges. See the tool's `docs/CONFIG.md`.
 2. Add fact-anchors where a doc cites a specific fact: `<!-- fact: <path>#<key> -->`. The `<key>` is a
@@ -65,7 +66,7 @@ true-up --help                   # command table; writes NOTHING (exit 0)
 true-up --repo <path>            # target another repo
 ```
 
-**Structured output (Axiom 8).** Every read-side command takes `--json` → a single JSON object on
+**Structured output.** Every read-side command takes `--json` → a single JSON object on
 **stdout** (data only; diagnostics go to stderr), so an agent/workflow parses the result instead of
 scraping human text. `true-up capabilities` returns the whole contract (commands, flags, the exit-code
 dictionary) so you never have to remember it. A mistyped command gets a `did you mean: …` suggestion.

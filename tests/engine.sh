@@ -571,6 +571,57 @@ caps="$($TU --repo "$FIX" capabilities 2>/dev/null)"
 printf '%s' "$caps" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const t=JSON.stringify(d);process.exit(d.quickstart&&d.entrypoints&&d.cmd_flags&&t.includes("--force")&&t.includes("--uninstall")&&!t.includes("--print")?0:1)' && ok "capabilities: quickstart/entrypoints/cmd_flags present; --force/--uninstall documented; --print gone" || no "capabilities contract completeness"
 printf '%s' "$caps" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const n=d.commands.map(c=>c.name.split(" ")[0]);process.exit(n.includes("status")&&n.includes("build")&&n.includes("robot-docs")?0:1)' && ok "capabilities lists status/build/robot-docs" || no "new commands missing from capabilities"
 
+# T73 — DOCS-IN-SYNC GATE (harness-engineering: true-up's OWN README once went stale — documenting a
+# tool whose whole job is keeping things in sync. NEVER AGAIN). The user/agent-facing docs (README.md,
+# SKILL.md) MUST document every command in `true-up capabilities`. Add/rename/remove a command without
+# updating the docs → this FAILS (in npm test + CI), so a drifted doc can't ship. AGENTS.md (maintainer)
+# is tracked separately via the .true-up.json contract seed.
+caps_cmds=$($TU capabilities --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const names=d.commands.map(c=>c.name.split(/[ \[]/)[0]).filter(n=>n&&!n.startsWith("("));process.stdout.write([...new Set(names)].join("\n"))')
+docs_missing=""
+for cmd in $caps_cmds; do
+  grep -qF -- "$cmd" "$HERE/README.md" || docs_missing="$docs_missing README:$cmd"
+  grep -qF -- "$cmd" "$HERE/SKILL.md"   || docs_missing="$docs_missing SKILL:$cmd"
+done
+[ -z "$docs_missing" ] && ok "DOCS-IN-SYNC: every \`capabilities\` command is documented in README.md + SKILL.md" || no "docs out of sync — undocumented commands:$docs_missing"
+
+# T74 — MARKER-FREE SELF-DOGFOOD GATE. true-up trues up its OWN repo with ZERO inline markers: every edge
+# is a sidecar `seed` (declared) in .true-up.json, or a symlink alias. This was CLAIMED in AGENTS.md but
+# never asserted. Now it is: the self-build must have NO 'anchored' or 'generator' edges (the inline-marker
+# bases). Drop a <!-- fact: --> or true-up:anchor into a true-up source file and this fails — use a seed.
+marker_edges=$($TU --repo "$HERE" --no-write --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const b=d.byDirectionBasis||{};process.stdout.write(String((b.anchored||0)+(b.generator||0)))')
+[ "$marker_edges" = "0" ] && ok "MARKER-FREE: true-up's own repo has 0 inline-marker edges (all declared seed / symlink)" || no "true-up's own repo grew an inline-marker edge (anchored+generator=$marker_edges) — declare it as a .true-up.json seed instead"
+
+# ── DOC-TRUTH gates (a doc-fact-check workflow found drift the command-coverage gate was blind to) ──
+
+# T75 — DOCS FLAG-COVERAGE: every per-command flag in capabilities.cmd_flags must be documented in
+# README.md (the canonical reference). Catches a flag added to the engine but never documented — the
+# `status --committed` class (a flag in the contract that no command actually honored).
+caps_flags=$($TU capabilities --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const f=d.cmd_flags||{};const o=[];for(const k of Object.keys(f))for(const fl of f[k])o.push(fl);process.stdout.write([...new Set(o)].join("\n"))')
+flags_missing=""
+for fl in $caps_flags; do grep -qF -- "$fl" "$HERE/README.md" || flags_missing="$flags_missing $fl"; done
+[ -z "$flags_missing" ] && ok "DOCS-FLAGS: every capabilities cmd-flag is documented in README.md" || no "undocumented flags in README:$flags_missing"
+
+# T76 — NO STALE init EXIT-1 CLAIM. init is idempotent (capabilities exits:[0]). PROVE it by running
+# init twice, THEN assert no user/agent doc still claims init "refuses to overwrite … exit 1".
+IT76="$(mktemp -d)"; git -C "$IT76" init -q
+$TU --repo "$IT76" init >/dev/null 2>&1
+$TU --repo "$IT76" init >/dev/null 2>&1; rc76=$?
+init_bad=""
+for f in README.md SKILL.md docs/CONFIG.md; do grep -nE 'refuses to overwrite' "$HERE/$f" 2>/dev/null | grep -qE 'exit 1' && init_bad="$init_bad $f"; done
+{ [ "$rc76" -eq 0 ] && [ -z "$init_bad" ]; } && ok "init is idempotent (exit 0) and no doc claims 'refuses to overwrite … exit 1'" || no "init exit-1 drift (second-run rc=$rc76; stale docs:$init_bad)"
+
+# T77 — NO INTERNAL JARGON in user-facing surfaces. Tier 1/Tier 2 and Axiom N are maintainer-only
+# (AGENTS.md / CLAUDE.md). Scan the user/agent docs AND the installer's user-visible --help output.
+jargon_hits=""
+for f in README.md SKILL.md docs/CONFIG.md CHANGELOG.md; do grep -Eq "Tier 1|Tier 2|Axiom [0-9]" "$HERE/$f" 2>/dev/null && jargon_hits="$jargon_hits $f"; done
+ihelp="$(bash "$HERE/install.sh" --help 2>/dev/null)"
+echo "$ihelp" | grep -Eq "Tier 1|Tier 2|Axiom [0-9]" && jargon_hits="$jargon_hits install.sh(--help)"
+[ -z "$jargon_hits" ] && ok "NO-JARGON: user-facing docs + installer --help carry no Tier/Axiom internal jargon" || no "internal jargon leaked to users in:$jargon_hits"
+
+# T78 — INSTALLER --help MUST NOT LEAK SOURCE (the help handler seds a comment range; an over-wide
+# range prints real code — the audit caught exactly this).
+echo "$ihelp" | grep -qE 'set -euo pipefail|^REPO_SLUG=|umask |shopt -s' && no "install.sh --help leaks source code (sed range overshoots the comment header)" || ok "install.sh --help renders only the comment header (no source leak)"
+
 echo
 echo "engine tests: ${pass} passed, ${fail} failed, ${skip} skipped"
 [ "$skip" = 0 ] || echo "  (skipped suites need optional devDeps — run \`npm install\` to enable them)"

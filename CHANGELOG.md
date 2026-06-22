@@ -12,7 +12,38 @@ commit pages on GitHub (`rawwerks/true-up`). No GitHub *Releases* existed before
 
 | Version | Date | Summary |
 |---|---|---|
+| [0.1.1](#011--2026-06-22) | 2026-06-22 | Docs rewritten for users (README no longer leaked internal/maintainer framing); a doc-fact-check found and fixed real drift (a README config example that failed to build, an `init` exit-code claim, an installer `--help` source leak); six deterministic doc/marker-drift gates added so it can't recur. |
 | [0.1.0](#010--2026-06-22) | 2026-06-22 | First tagged release: the deterministic, git-native truing-up engine — language-agnostic, read-only-by-design, marker-free, self-dogfooding. |
+
+## [0.1.1] - 2026-06-22
+
+A docs + self-gating patch. No breaking changes; the command surface and behavior are identical to
+0.1.0 except one spurious flag was removed (`status --committed`, which no code path honored). The
+motivation: true-up's own README had drifted — a keeping-things-in-sync tool shipping a stale, internal
+README. This release fixes the rot and makes the whole class of doc/marker drift impossible to ship.
+
+### Changed — docs rewritten for users
+- **README.md** is now user-facing: removed internal jargon (the old span-vs-symbol layer naming,
+  self-dogfood, invariants, steward) — that lives in [AGENTS.md](AGENTS.md) — and restructured to
+  problem → solution → two-phase
+  install (get the tool, then `init` in a repo) → commands → config → FAQ. The config example now
+  actually builds (the prior one hard-failed with a SEED ERROR).
+- **SKILL.md / docs/CONFIG.md**: corrected the `init` exit code (idempotent **exit 0**, not "refuses to
+  overwrite, exit 1"), the inert-graph condition (keyed off edges, not declared facts), and documented
+  that a malformed config exits 2. Removed leaked "Axiom N" jargon from the agent-facing skill.
+- **install.sh**: `--help` no longer leaks source code (the comment-range `sed` overshot), and the
+  user-visible internal layer-naming strings are gone.
+
+### Fixed
+- Removed `status --committed` from the contract's `cmd_flags` — `status` never read it.
+
+### Added — six deterministic doc/marker-drift gates (tests/engine.sh, in `npm test` + CI)
+- **docs-in-sync** (every `capabilities` command documented in README + SKILL), **flag-coverage**
+  (every contract flag documented), **no-stale-init** (proves idempotency, then forbids the exit-1
+  claim), **no-jargon** (no Tier/Axiom in user docs or installer `--help`), **no-source-leak**
+  (installer `--help` prints no code), and **marker-free** (true-up's own build has zero inline-marker
+  edges — the "no markup in our files" invariant was claimed in AGENTS.md but never asserted; now it is).
+  Provenance: two multi-agent audits in [agent_ergonomics_audit/](agent_ergonomics_audit/audit/HANDOFF.md).
 
 ## [0.1.0] - 2026-06-22
 
@@ -58,9 +89,9 @@ with a regression test (`tests/engine.sh` T40–T72).
   `maintenance` / `audit` workflows ([`1cd7590`](https://github.com/rawwerks/true-up/commit/1cd7590)).
 
 ### Added — language-agnostic source-of-truth
-- **Tier 1 — span anchors:** bracket a region of *any* file with a paired comment token to make code a
-  content-hashed source-of-truth, zero-dependency, no parser ([`20b2d91`](https://github.com/rawwerks/true-up/commit/20b2d91)).
-- **Tier 2 — tree-sitter symbols:** opt-in `"symbols": true` auto-extracts code definitions
+- **Span anchors (any language, zero-dependency):** bracket a region of *any* file with a paired comment
+  token to make code a content-hashed source-of-truth, no parser ([`20b2d91`](https://github.com/rawwerks/true-up/commit/20b2d91)).
+- **Tree-sitter symbols (opt-in):** `"symbols": true` auto-extracts code definitions
   (Python/Rust/Go/JS/TS/C/C++) as facts; optional pinned deps, fail-loud if enabled-but-missing
   ([`20b2d91`](https://github.com/rawwerks/true-up/commit/20b2d91)).
 - **Marker-free fact-granular `seed`:** a sidecar `seed` `to` of form `path#fact` links a doc to a

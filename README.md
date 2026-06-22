@@ -1,210 +1,303 @@
+<div align="center">
+
 # true-up
 
-Deterministic, git-native **truing-up** for any repo: a content-hashed dependency graph that
-detects what a change makes stale, regenerates the mechanical, and worklists the advisory — so
-docs, data, and code stay in sync without an agent guessing.
+**Keep your docs, data, and code in sync — deterministically.**
 
-## The idea
+true-up builds a content-hashed dependency graph of your repo, then tells you exactly what a change
+made stale, regenerates the mechanical parts, and hands you a short list of the prose to review. No
+LLM guessing. No service. No database.
 
-Change-impact must be **deterministic** — derived from a typed, content-hashed graph, not an LLM
-judgment (an LLM-coverage approach is non-deterministic and rots). The CLI does the fast 80%; an
-optional agent layer only ever *proposes* minimal prose edits.
+[![npm](https://img.shields.io/npm/v/true-up)](https://www.npmjs.com/package/true-up)
+[![CI](https://github.com/rawwerks/true-up/actions/workflows/true-up.yml/badge.svg)](https://github.com/rawwerks/true-up/actions/workflows/true-up.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![node](https://img.shields.io/node/v/true-up)](https://nodejs.org)
 
-- **Directed, causal edges only.** `from` = dependent → `to` = source-of-truth. Direction comes
-  from a generator marker, a declared steward, an inline fact-anchor, or a symlink — never from
-  correlation (co-change/embeddings can suggest, never assign the arrow).
-- **Fact/span granularity, in any language.** Steward JSON files decompose into per-fact nodes; a
-  bracketed code region (`true-up:anchor`/`true-up:end` — any language, zero-dep) or a tree-sitter
-  symbol (opt-in `"symbols": true`) is a content-hashed fact too — so a dependent is stale only when
-  the *specific* fact / region / symbol it cites moves (early-cutoff), not when the file changes.
-- **Fail-loud.** A fact-anchor that doesn't resolve is a hard error (stable-ID discipline).
-- **Git-native, commit-optional.** The graph is plain JSON derived from tracked sources — no
-  service, no DB. The default `out` (`.true-up/depgraph.json`) is gitignored, so it acts as a
-  regenerable cache. If you want drift to fail CI, **commit the graph** and gate on
-  `--check --committed` (see below); otherwise treat it as a build artifact and use `--check`
-  for working-tree freshness.
-- **Read-only by design.** true-up never modifies, creates, or deletes your content. Its *entire* write
-  surface is `.true-up/` (the graph), `.true-up.json` (`init`, no-clobber), and `.git/hooks/` (opt-in
-  `hooks --install`). Declare dependencies **marker-free** in `.true-up.json` `seed` (no comments in your
-  files), and run with `--no-write` for a fully stateless audit that persists *nothing* — not even the
-  graph. Enforced, not just claimed: a keystone test snapshots every file before/after every command and
-  fails on any content byte change.
+```sh
+npm i -g true-up      # then, in your repo:  true-up init && true-up status
+```
+
+</div>
+
+---
+
+## The problem
+
+You change a function, a config value, or a data file — and three docs, a README table, and a
+generated file silently fall out of date. Nothing tells you. Reviewers don't catch it. The drift
+ships.
+
+The usual "fixes" don't hold:
+
+| Approach | Why it falls short |
+|---|---|
+| "Remember to update the docs" | Humans forget; nothing enforces it. |
+| Ask an LLM "is this still accurate?" | Non-deterministic, can't gate CI on it, costs tokens, drifts over time. |
+| A linter / formatter | Checks one file in isolation; it doesn't know doc X depends on code Y. |
+
+## The solution
+
+`true-up` makes the dependencies **explicit and content-hashed**, so "what's stale?" is a graph
+query, not a judgment call:
+
+```sh
+true-up status              # one call: what's stale since the last commit, and what to run next
+true-up run --since HEAD~1  # regenerate the mechanical deps, list the prose a human should review
+true-up gate               # CI/pre-commit: exit 1 if anything is stale or leaks — deterministic
+```
+
+Same inputs → same answer, every time. The CLI does the fast, certain 80%; you (or an agent) only
+ever review the small list of prose it can't safely rewrite.
+
+## Why true-up
+
+| | |
+|---|---|
+| 🎯 **Deterministic** | Impact comes from a content-hashed graph + git — never an LLM. Reproducible across machines and CI. |
+| 🔒 **Read-only** | It never modifies, creates, or deletes your content. Its only writes are its own graph cache and (opt-in) git hooks. |
+| 🧬 **Git-native** | The graph is plain JSON derived from tracked files. No server, no database, commit-optional. |
+| 🌍 **Any language** | Mark a source-of-truth with a comment anchor (works in any language), or auto-extract code symbols with tree-sitter. |
+| 🪶 **Lean** | The core is zero-dependency; `npx true-up` stays small (tree-sitter is an optional add-on). |
+| 🤖 **Agent-ready** | `--json` on every command (uniform `ok` + `_v`), a one-call `status`, and an in-tool `robot-docs` handbook. |
+
+---
 
 ## Install
 
-**npm / npx (primary, once published)** — zero-install and version-pinned, which is what a deterministic
-gate needs (pin the version so the gate is identical across machines/CI):
+It's a two-step adoption: **(1) get the `true-up` command, then (2) set it up inside a repo.**
+
+### 1. Get the tool — pick one
 
 ```sh
-npx true-up@0.1.0 --repo <target-repo> gate     # zero-install, version-pinned gating
-npm install -g true-up                           # or install the launcher globally
+npm i -g true-up                 # global CLI → `true-up` on your PATH everywhere
+npx true-up@latest <command>     # zero-install, run on demand (e.g. npx true-up status)
+npm i -D true-up                 # pin it inside one project (run via `npx true-up` or an npm script)
 ```
 
-The core + Tier 1 span anchors are **zero-dependency** (the tree-sitter stack is an optional peer dep, so
-`npx true-up` stays lean). For Tier 2 tree-sitter symbols, also install the grammars:
-
-```sh
-npm install web-tree-sitter@0.24.7 tree-sitter-wasms@0.1.13
-```
-
-**One-line installer** (no npm needed; puts a `true-up` launcher on your PATH; Node ≥ 18; add
-`--with-symbols` for the tree-sitter layer):
+Or with no npm at all (puts a `true-up` launcher on your PATH; needs Node ≥ 18):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rawwerks/true-up/main/install.sh | bash
 ```
 
-Or install from a checkout (same script):
+> The core is zero-dependency. To auto-extract code **symbols** with tree-sitter (optional), also:
+> `npm i web-tree-sitter@0.24.7 tree-sitter-wasms@0.1.13` — or pass `--with-symbols` to the installer.
+
+### 2. Adopt it in a repo
+
+A global install gives you the command; this step is what actually wires it into a project:
 
 ```sh
-git clone <this-repo> true-up && bash true-up/install.sh        # add --with-symbols for Tier 2
+cd your-repo
+true-up init       # scaffold .true-up.json — declare your sources of truth + their dependents
+true-up build      # build the dependency graph (.true-up/depgraph.json)
+true-up status     # see what's tracked and whether anything is stale
+true-up gate       # the check to run in CI / pre-commit
 ```
 
-`bash install.sh --uninstall` reverts it. No install is required at all, though — run the entry
-directly against any target:
+---
+
+## Quick start
 
 ```sh
-git clone <this-repo> true-up
+$ cd your-repo
+$ true-up init
+wrote .true-up.json — declare facts/zones/seed for your repo, then run: true-up
+
+# ...declare a dependency in .true-up.json (a doc that derives from a data file), then:
+$ true-up build
+.true-up/depgraph.json written: 12 nodes (4 fact-nodes), 5 edges
+
+# change a tracked source, then ask where you stand — one call:
+$ true-up status
+true-up status (.) — read-only orientation
+
+  graph:    12 nodes, 5 edges
+  built:    yes, in sync
+  changed:  since HEAD~1 → 1 mechanical / 1 advisory dependent(s)
+              advisory: docs/api.md  ←  config.json#routes.timeout
+  policy:   clean · externalities: clean
+  verdict:  work pending ↓
+
+  next:
+    true-up run --since HEAD~1   # regenerate 1 mechanical dependent(s)
+    true-up --impact --since HEAD~1   # then rewrite 1 advisory doc(s)
 ```
 
-Run it cross-repo by pointing `--repo` at the target:
+`true-up run` regenerates the **mechanical** dependents (e.g. generated files) and prints the
+**advisory** ones (prose for you to rewrite — true-up never edits your prose). `true-up gate`
+turns the whole thing into a single pass/fail for CI.
 
-```sh
-node <path-to>/true-up/bin/true-up --repo <target-repo>           # build the target's graph
-node <path-to>/true-up/bin/true-up --repo <target-repo> --check   # freshness gate
-```
-
-The target repo is resolved as `--repo <path>` | `$TRUE_UP_REPO` | the git toplevel of the
-current directory | CWD — so you can also `cd` into the target and run `bin/true-up` with no
-`--repo`. If you prefer a bare `true-up` command, `cd true-up && npm link` exposes it on PATH,
-but that is optional; `node bin/true-up …` works straight from a clone.
-
-## Quickstart (in any repo)
-
-The examples below use a bare `true-up` (assume the optional `npm link`, or substitute
-`node <path-to>/true-up/bin/true-up --repo <target-repo>`).
-
-1. Scaffold a config: `true-up init` writes a starter `.true-up.json` (or copy
-   [`examples/true-up.config.json`](examples/true-up.config.json); see
-   [docs/CONFIG.md](docs/CONFIG.md)). Declare your steward facts, zones, and seed edges.
-2. Build and check:
-
-```sh
-true-up status                   # READ-ONLY orientation in one call: built? stale? + nextCommands[] (always exit 0)
-true-up robot-docs               # paste-ready in-tool agent handbook (task → command)
-true-up build                    # build the graph (path from `out`; default .true-up/depgraph.json)
-true-up --check                  # exit 1 if the ON-DISK graph is stale (working-tree freshness)
-true-up --check --committed      # exit 1 if the COMMITTED/STAGED graph blob is stale (drift gate)
-true-up --policy                 # lint content vs declared zone intents; exit 1 on violations
-true-up --impact --since HEAD~1  # what a git change made stale (mechanical vs advisory)
-true-up run --since HEAD~1       # detect → regenerate mechanical → advisory worklist → verify
-true-up gate                     # one CI stage: --check + --policy + --externalities; exit 1 on any failure
-```
-
-For agents: every read-side command takes `--json` and answers a uniform `ok` (pass/fail) + `_v`
-(contract version); `true-up status --json` is the one-call orientation, `true-up capabilities` is the
-machine contract. Errors name the exact command to run instead (e.g. `true-up update` → "did you mean: run").
+---
 
 ## Commands
 
+Every read-side command also accepts `--json` (data on stdout, diagnostics on stderr) and reports a
+uniform `ok` boolean.
+
 | command | what it does | exit |
 |---|---|---|
-| `true-up` | build the dependency graph (path from `.true-up.json` `out`; default `.true-up/depgraph.json`) | 0 (1 on unresolved anchor) |
-| `--check` | working-tree freshness: is the ON-DISK graph what a fresh build produces? | 1 if stale |
-| `--check --committed` | the drift gate: does the COMMITTED (or staged) graph blob match a fresh rebuild? An untracked graph fails. | 1 if stale/untracked |
-| `--impact <path\|path#fact>…` | what becomes stale if that path/fact changes | 0 (2 on bad usage/ref) |
-| `--impact --since <ref>` | same, auto-detected from `git diff` since `<ref>` | 0 (2 on a bad ref) |
-| `run [--since <ref>] [--strict]` | the deterministic loop: detect → regenerate mechanical dependents → print the advisory worklist → verify | 1 if not green; `--strict` exits 2 when advisory review is still pending |
-| `gate [--committed]` | one CI/pre-commit stage: `--check` + `--policy` + `--externalities`; the exit code is authoritative (a runner keys on it, not stdout) | **1 if any sub-check fails** |
-| `hooks [--install\|--uninstall\|--ci]` | wire (or remove) a per-repo pre-commit + pre-push gate, or print a CI snippet. Hooks fail closed if the tool is absent. | 0 (2 if not a git repo) |
-| `--policy [--report]` | lint each file against its declared zone's rules (leaks, visibility, public→private deps, ciphertext) | **1 on violations**; `--report` forces 0 |
-| `--externalities [--report]` | machine-local path leaks in public files | **1 on leaks**; `--report` forces 0 |
-| `--verify-scope [--since <ref>]` | anti-code-golf gate: every changed file must be explained by the graph | 1 if an edit is out of the blast radius |
-| `init` | scaffold a starter `.true-up.json` (refuses to overwrite an existing one) | 0 (1 if one exists) |
-| `capabilities` | machine-readable contract: commands, flags, exit-code dictionary (always JSON) | 0 |
-| `--version` / `-v` | print the version | 0 |
-| `<read-cmd> --json` | structured JSON on stdout for any read-side command (data only; diagnostics on stderr) | as the command |
-| `--help` / `-h` / `help` | print this command table; **writes nothing** | 0 |
-| `--repo <path>` | operate on a target repo (default: `$TRUE_UP_REPO` \| git toplevel of CWD \| CWD) | — |
-| `--no-write` | global: compute in memory and persist **nothing** (not even `.true-up/`); `build --json` emits the graph; `run --no-write` is a dry-run preview | as the command |
+| `true-up status` | read-only orientation in one call: built? stale? what changed + what to run next | 0 (always — it's a probe) |
+| `true-up build` (or bare `true-up`) | build the dependency graph (`out`, default `.true-up/depgraph.json`) | 0 (1 on an unresolved anchor; 2 on ill-typed config) |
+| `true-up --check [--committed]` | is the graph stale? `--committed` checks the committed/staged graph (the CI drift gate) | 1 if stale |
+| `true-up --impact <path\|path#fact>… [--since <ref>]` | what becomes stale if that path/fact changes | 0 (2 on unknown target / bad ref) |
+| `true-up run [--since <ref>] [--strict]` | the loop: detect → regenerate mechanical deps → list advisory prose → verify | 1 if not green (2 under `--strict` when advisory review is pending) |
+| `true-up gate [--committed]` | one CI/pre-commit stage: `--check` + `--policy` + `--externalities` | **1 if any sub-check fails** |
+| `true-up hooks [--install\|--uninstall\|--ci] [--force]` | wire (or remove) a per-repo pre-commit + pre-push gate, or print a CI snippet | 0 (2 if not a git repo) |
+| `true-up --policy [--report]` | lint files against their declared zone rules (path leaks, visibility) | **1 on violations** (`--report` → 0) |
+| `true-up --externalities [--report]` | scan public files for machine-local path leaks (`/home/you/…`) | **1 on leaks** (`--report` → 0) |
+| `true-up --verify-scope [--since <ref>]` | guard: every changed file must be explained by the graph | 1 if an edit is out of scope |
+| `true-up init` | scaffold a starter `.true-up.json` (idempotent — never overwrites) | 0 |
+| `true-up capabilities` | machine-readable contract (commands, flags, exit codes) — always JSON | 0 |
+| `true-up robot-docs` | a paste-ready, in-tool handbook for AI agents | 0 |
+| `true-up --version` · `--help` | version · command table (writes nothing) | 0 |
 
-`--policy` and `--externalities` are **gates**: they exit 1 when they find something, so they
-fail a pre-commit hook or CI step out of the box. Pass `--report` to inspect findings without
-failing (report-only, exit 0). An **unknown command** exits 2 and writes nothing — it does
-**not** silently build into the target repo.
+**Global flags:** `--repo <path>` (operate on another repo — defaults to `$TRUE_UP_REPO`, then the
+git toplevel of your CWD), `--json` (structured output), `--no-write` (compute in memory, persist
+nothing).
 
-## Suppressing leak findings in prose
+Exit codes are a documented dictionary: **0** = ok/clean, **1** = a gate failed (stale / leak /
+not-green), **2** = usage error (unknown command, bad ref, not a git repo, bad config). Errors name
+the exact command to run instead.
 
-The leak scanners (`--externalities` and the `no-machine-local-paths` / `no-private-operational-leak`
-policy rules) ignore anything inside **inline or fenced code** — a doc that *quotes* a forbidden
-path shape as an example (a privacy policy, this README) is not a leak. For a path that has to
-appear as live prose, opt out per line:
+---
 
-```md
-A machine-local path like /home/alice/notes is forbidden.   <!-- true-up:ignore-line -->
-<!-- true-up:ignore-next no-machine-local-paths -->
-The next line's path example is intentionally left as-is.
+## Configure it: `.true-up.json`
+
+`true-up init` writes a starter. You declare three things (full reference:
+[docs/CONFIG.md](docs/CONFIG.md), example: [examples/true-up.config.json](examples/true-up.config.json)):
+
+```jsonc
+{
+  // 1. FACTS — point at a JSON file's array-of-objects; each element becomes a tracked fact.
+  //    Here config.json is:  { "routes": [ { "name": "timeout", "ms": 30000 }, … ] }
+  //    → mints one fact per route, keyed by "name":  config.json#routes.timeout, …
+  "facts": { "config.json": [["routes", "name"]] },
+
+  // 2. SEED — declare a dependency in config, without adding comments to your files:
+  //    docs/api.md derives from that one fact, so it's flagged stale only when THAT route changes.
+  //    (Use "to": "config.json" for a whole-file edge if you don't need fact-granularity.)
+  "seed": [ { "from": "docs/api.md", "to": "config.json#routes.timeout" } ],
+
+  // 3. ZONES — optional: visibility / leak rules per path.
+  "zones": [ { "path": "", "visibility": "public", "rules": ["no-machine-local-paths"] } ]
+}
 ```
 
-`ignore-line` suppresses findings on the same line; `ignore-next` suppresses the following line.
-An optional rule name (e.g. `no-machine-local-paths`) scopes the suppression to that one rule;
-omit it to suppress all rules on that line.
+## Make code a source of truth
 
-## The truing-up loop today
+A doc can depend on **code**, fact-by-fact, in any language — two ways to expose the fact:
 
-`true-up run` is **the workflow today**: it detects what changed since a ref, regenerates the
-mechanical dependents (running the generators the graph's edges name), prints the advisory
-worklist of prose a human or LLM must rewrite, and verifies (policy clean + graph in sync). This
-CLI **never edits prose** — the advisory rewrites are left to you. The agentic Claude Code
-`/workflow` that would *apply* those rewrites automatically is on the roadmap, not yet built; for
-now, "run the workflow" means `true-up run`.
+**Comment anchors** (any language, no dependencies) — bracket a region; the token rides whatever
+comment syntax the language already uses:
 
-## Code as a source-of-truth
+```python
+# true-up:anchor id=parse_config
+def parse_config(path): ...
+# true-up:end
+```
 
-A doc can derive from *code* in any language, fact-granular. Three ways to expose a fact:
+**Symbols** (optional, tree-sitter) — set `"symbols": true` and true-up auto-extracts top-level
+definitions (Python / Rust / Go / JS / TS / C / C++) as facts named after the symbol — no manual
+markers.
 
-1. **JSON stewards** — a JSON file with top-level arrays-of-objects, declared in `facts`.
-2. **Span anchors (any language, zero-dep)** — bracket a region with a paired comment token; the
-   token rides whatever comment syntax the language already has, so no parser is needed:
+Either way, a doc **cites** the fact to create the dependency — inline (`<!-- fact: src/app.py#parse_config -->`)
+or in config via a `seed` entry (no comments in your files). The edge is always explicit; true-up
+never guesses a dependency from co-occurrence.
 
-   ```python
-   # true-up:anchor id=parse_config
-   def parse_config(path): ...
-   # true-up:end id=parse_config
-   ```
+## Use it in CI / pre-commit
 
-   The region's bytes become the fact `parse_config`. A doc anchors to it the usual way:
-   `<!-- fact: src/app.py#parse_config -->`.
-3. **Symbols (opt-in, tree-sitter)** — set `"symbols": true` in `.true-up.json` to auto-extract
-   top-level definitions (Python / Rust / Go / JS / TS / C / C++) as facts named after the symbol —
-   no manual markers. This needs the optional `web-tree-sitter` + `tree-sitter-wasms` deps (run
-   `npm install` in the true-up tool dir); if `"symbols"` is enabled but they're absent, the build
-   **fails loud** (exit 2) rather than silently producing a different, non-deterministic graph.
+```sh
+true-up hooks --install     # adds a pre-commit + pre-push gate to this repo
+true-up hooks --ci          # prints a ready-to-paste GitHub Actions snippet (version-pinned)
+```
 
-In all three, **edges stay explicit** — tree-sitter (and span scanning) only produce better *nodes*;
-a doc must still cite the fact for an edge to exist, and correlation never assigns the arrow. Cite it
-**either way**: an inline `<!-- fact: path#id -->` anchor (co-located, greppable), **or** — marker-free —
-a `seed` entry in `.true-up.json` (`{ "from": "doc.md", "to": "path#id" }`), so your files stay pristine.
-Both resolve to the identical fact-level edge. A code file is also a valid **seed endpoint** at file
-granularity without any of the above.
+`true-up gate` is the single command to run in a pipeline — it exits non-zero if the graph is stale
+or a policy/leak check fails, so a runner can key on the exit code.
 
-## Scope and limitations
+## For AI agents
 
-- **Empty graph is inert.** With no facts, anchors, symbols, or seed edges, the drift layer passes
-  `--check` trivially; the build prints a `NOTICE` to that effect. Give it something to track.
-- **Symbols are top-level + opt-in.** Tree-sitter extraction lifts module-level definitions (nested
-  methods aren't auto-named yet — reach them with a span anchor). It's off unless `"symbols": true`.
+true-up is built to be driven by coding agents:
 
-## Status
+- **`true-up status --json`** — one call returns `{ built, stale, impact, policy, externalities, green, nextCommands[] }`.
+- **`true-up robot-docs`** — a paste-ready handbook (task → command), in-tool, no external doc lookup.
+- **`true-up capabilities`** — the full machine contract (commands, flags, exit codes, `quickstart`).
+- Every read-side command: `--json` with a uniform `ok` + `_v`; errors emit `{ok:false, …}` and a
+  `did you mean` suggestion (e.g. `true-up update` → "did you mean: run").
 
-**v0.1.0** — the deterministic engine, fully tested against a synthetic repo (`npm test`). true-up
-**dogfoods itself, marker-free**: its command surface is generated to a `meta/contract.json` steward,
-the docs derive-facts-from it via sidecar `seed` (no inline markers), and `npm test` + CI run
-`true-up gate` on true-up's own repo. See [AGENTS.md](AGENTS.md) → "Self-dogfood".
-On the roadmap: the optional Claude Code `/workflow` that *applies* the advisory rewrites, and
-mycelium note enrichment.
-See [AGENTS.md](AGENTS.md) for the architecture and invariants.
+## How it fits together
+
+```
+   your repo (tracked files)
+     │   sources of truth:  JSON facts  ·  comment anchors  ·  tree-sitter symbols
+     ▼
+   true-up build ──►  .true-up/depgraph.json   (content-hashed, directed graph)
+     │
+     ├─ true-up --impact <path>     who depends on this?
+     ├─ true-up run --since <ref>   regenerate mechanical deps · list prose to review
+     └─ true-up gate                --check + --policy + --externalities → 0/1 for CI
+```
+
+---
+
+## Limitations
+
+- **It tracks what you declare.** With no facts, anchors, symbols, or seed edges, the graph is empty
+  and `--check` passes trivially (the build prints a NOTICE). You get out what you put in.
+- **Advisory rewrites are yours.** true-up regenerates *mechanical* dependents (generated files) and
+  *lists* the prose that needs review — it never rewrites your prose.
+- **Symbols are top-level + opt-in.** Tree-sitter extraction lifts module-level definitions; reach a
+  nested method with a comment anchor instead.
+- **Dependencies are explicit by design.** true-up won't invent an edge from co-change or embeddings —
+  you declare it (in config or with an anchor). That's what makes it deterministic.
+
+## FAQ
+
+**Does it edit my files?** No. It only ever writes its own graph cache (`.true-up/` — add it to your
+`.gitignore` if you treat the graph as a regenerable cache), `.true-up.json` on `init` (never
+overwriting), and git hooks if you opt in. `run` executes only the generators *you* declare;
+`--no-write` persists nothing at all.
+
+**Do I have to commit the graph?** No. By default it's a regenerable cache and `--check` verifies
+working-tree freshness. If you want CI to fail on drift, commit the graph and use `--check --committed`.
+
+**Does it need an LLM or network?** No. It's deterministic and offline — just git + Node.
+
+**What languages?** Comment anchors and JSON facts work everywhere. Tree-sitter symbol extraction
+covers Python, Rust, Go, JS, TS, C, and C++ (opt-in).
+
+**How is this different from a linter?** A linter checks a file in isolation. true-up tracks
+*cross-file* dependencies — it knows `docs/api.md` derives from `config.json#routes.timeout` and flags
+the doc when that specific fact changes.
+
+**Is tree-sitter required?** No — it's an optional add-on for symbol extraction. The core and comment
+anchors are zero-dependency.
+
+**A leak finding is a false positive — how do I allow it?** Leak scans already ignore anything inside
+inline or fenced code, so quoting a path as an example is fine. For a path that must appear as live
+prose, add `<!-- true-up:ignore-line -->` to that line (or `<!-- true-up:ignore-next -->` to the line
+above it). An optional rule name scopes it: `<!-- true-up:ignore-line no-machine-local-paths -->`.
+
+---
+
+## About Contributions
+
+Please don't take this the wrong way, but I do not accept outside contributions for any of my
+projects. I simply don't have the mental bandwidth to review anything, and it's my name on the thing,
+so I'm responsible for any problems it causes; thus, the risk-reward is highly asymmetric from my
+perspective. I'd also have to worry about other "stakeholders," which seems unwise for tools I mostly
+make for myself for free. Feel free to submit issues, and even PRs if you want to illustrate a
+proposed fix, but know I won't merge them directly. Instead, I'll have Claude or Codex review
+submissions via `gh` and independently decide whether and how to address them. Bug reports in
+particular are welcome. Sorry if this offends, but I want to avoid wasted time and hurt feelings. I
+understand this isn't in sync with the prevailing open-source ethos that seeks community
+contributions, but it's the only way I can move at this velocity and keep my sanity.
 
 ## License
 
 MIT © 2026 Raymond Weitekamp. See [LICENSE](LICENSE).
+
+---
+
+*Maintainer / architecture notes live in [AGENTS.md](AGENTS.md). Running true-up inside your own
+agent? See [SKILL.md](SKILL.md).*

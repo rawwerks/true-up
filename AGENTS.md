@@ -5,7 +5,7 @@ agents running true-up in their own repo read [`SKILL.md`](./SKILL.md).
 
 ## What this is
 
-A deterministic, git-native dependency-graph engine for "truing up" a repo. Extracted from an
+A deterministic Git/jj-native dependency-graph engine for "truing up" a repo. Extracted from an
 internal corpus where it was proven; this repo is the standalone, repo-agnostic tool.
 
 ## Layout
@@ -34,17 +34,17 @@ Verify against `lib/engine.mjs` before changing any of this.
 - `true-up build` — explicit verb for the bare build below (discoverable alias).
 - `true-up` (no args) — (re)build + write the graph JSON to `out` (default `.true-up/depgraph.json`). Exit 1 on an unresolved anchor (fail-loud); otherwise exit 0. Prints a NOTICE when no facts/edges are declared (the drift layer is INERT).
 - `true-up --check` — working-tree freshness: exit 1 if the ON-DISK graph differs from a fresh rebuild.
-- `true-up --check --committed` — the real drift gate: exit 1 if the COMMITTED-or-STAGED graph blob differs from a fresh rebuild (prefers the staged blob for pre-commit, else `HEAD:` for CI). An **untracked** graph fails (false assurance is worse than none).
-- `true-up --impact <path|path#fact>… [--since <ref>]` — who is made stale; exit 0. A bad `--since` ref exits 2 (not a silent "0 dependents"); no graph on disk exits 2.
+- `true-up --check --committed` — the real drift gate: exit 1 if the VCS-stored graph blob differs from a fresh rebuild. Git prefers the staged blob for pre-commit, else `HEAD:` for CI; jj-only reads `@`. A missing/untracked graph fails (false assurance is worse than none).
+- `true-up --impact <path|path#fact>… [--since <ref>]` — who is made stale; exit 0. A bad Git ref / jj revset exits 2 (not a silent "0 dependents"); no graph on disk exits 2.
 - `true-up --policy [--report]` — zone/visibility lint. **EXIT 1 on violations**; `--report` forces exit 0 (report-only).
 - `true-up --externalities [--report]` — machine-local-path leak scan. **EXIT 1 on leaks**; `--report` forces exit 0.
 - `true-up --verify-scope [--since <ref>]` — anti-code-golf gate: exit 1 (naming the file) if a changed file is not explained by the graph (the changed source, its regenerated/advisory dependents, or the cache). Vacuous (exit 0, stderr NOTE) on a no-edge repo. Bad ref exits 2.
 - `true-up run [--since <ref>] [--strict]` — deterministic truing-up loop; exit 1 if not GREEN (regen failed / policy violations / depgraph stale), exit 2 under `--strict` when GREEN but advisory prose review is still pending. Verify reads the `--policy` child's EXIT CODE, not its stdout.
 - `true-up gate [--committed]` — one CI stage: spawns `--check` (+`--committed`) · `--policy` · `--externalities` as children and exits **1 if ANY fails**, 0 if all pass. `--json` reports per-check status. The exit code is the contract (a runner keys on it). Build the graph first so `--check` is meaningful.
-- `true-up hooks [--install|--uninstall|--ci] [--force]` — per-repo adoption: writes/removes executable `pre-commit` + `pre-push` (resolved via `git rev-parse --git-path hooks`, honoring `core.hooksPath`/worktrees) carrying the `managed-by: true-up-hooks` marker; idempotent; backs up a pre-existing foreign hook to `*.bak` **once** (never clobbers an existing `.bak`), and `--uninstall` **restores** that backup. SAFETY: if the resolved hooks dir is **outside this repo's `.git`** (a shared/global `core.hooksPath`), `--install`/`--uninstall` **REFUSE** (exit 2) with a loud message unless `--force` — this prevents silently rewiring every repo on the machine (the incident that overwrote a dev's global hooks during `npm test`; the test harness is now git-config-isolated too). Hooks **fail closed** if `true-up` is absent. `--ci` prints a version-pinned GH Actions snippet. Exit 2 if not a git repo. (pre-push too: `jj commit` bypasses pre-commit.)
+- `true-up hooks [--install|--uninstall|--ci] [--force]` — Git-backed per-repo adoption: writes/removes executable `pre-commit` + `pre-push` (resolved via `git rev-parse --git-path hooks`, honoring `core.hooksPath`/worktrees) carrying the `managed-by: true-up-hooks` marker; idempotent; backs up a pre-existing foreign hook to `*.bak` **once** (never clobbers an existing `.bak`), and `--uninstall` **restores** that backup. SAFETY: if the resolved hooks dir is **outside this repo's `.git`** (a shared/global `core.hooksPath`), `--install`/`--uninstall` **REFUSE** (exit 2) with a loud message unless `--force` — this prevents silently rewiring every repo on the machine (the incident that overwrote a dev's global hooks during `npm test`; the test harness is now git-config-isolated too). Hooks **fail closed** if `true-up` is absent. `--ci` prints a version-pinned GH Actions snippet. Exit 2 if there is no Git hooks dir. (pre-push too: `jj commit` bypasses pre-commit; non-colocated jj has no Git hooks dir for this command.)
 - `true-up init` — scaffold a starter `.true-up.json`; **idempotent** (exit 0): never overwrites an existing config, and "already scaffolded" is success — exit 1 is reserved for gate violations everywhere else.
 - `true-up capabilities` — machine-readable contract (commands, flags, exit-code dictionary, **`quickstart` task→command map, `entrypoints`, `cmd_flags`** = the live per-command flag map, `error_codes`); always JSON; exit 0. Axiom 9: an agent reads the contract from the tool, not out-of-band.
-- `true-up robot-docs` (alias `--robot-help`) — paste-ready **in-tool agent handbook** (task→command recipes); writes nothing; works outside a git repo; exit 0. `capabilities` is the machine CONTRACT, this is the QUICKSTART.
+- `true-up robot-docs` (alias `--robot-help`) — paste-ready **in-tool agent handbook** (task→command recipes); writes nothing; works outside any repo; exit 0. `capabilities` is the machine CONTRACT, this is the QUICKSTART.
 - `true-up --version | -v | version` — print the version; exit 0.
 - `true-up --help | -h | help` — prints the command table (with a COMMON TASKS block) and **writes nothing** (exit 0). An **unknown command/flag exits 2 and writes nothing** (with a `did you mean: …` suggestion that consults the synonym map, then cross-prefix Levenshtein, then global flags) — never a silent fall-through to build+write. A **stray positional on a no-positional command exits 2** (Axiom 14 — `gate zzz` must not silently PASS).
 - **`--json` on every read-side command** — a single JSON object on **stdout** (data only; diagnostics on stderr, Axiom 4) so workflows parse the result instead of regex-scraping. Every envelope carries a uniform **`ok`** (boolean pass/fail) and **`_v`** (contract version); error paths emit `{ok:false, kind, …}` on stdout too. The exit code is unchanged by `--json`.
@@ -69,26 +69,28 @@ Verify against `lib/engine.mjs` before changing any of this.
 4. **Fail-loud.** An anchor that doesn't resolve to a known fact node is a hard error (stable IDs).
 5. **Mechanical vs advisory.** `generated-from` / `symlink` edges are *mechanical* (regenerate, no
    LLM). `derives-facts-from` (declared or anchored) is *advisory* (a human/LLM rewrites prose).
-6. **Repo-agnostic.** The engine operates on a TARGET repo (`--repo` / CWD git-toplevel) driven by
+6. **Repo-agnostic.** The engine operates on a TARGET repo (`--repo` / CWD Git/jj toplevel) driven by
    `<repo>/.true-up.json`. Nothing repo-specific is hardcoded; `run`'s regeneration is data-driven
    from each edge's `via` (the generator the marker names), never a hardcoded list.
-7. **Git is the database — commit-optional.** The graph is a JSON file derived purely from sources
+7. **The VCS is the database — commit-optional.** The graph is a JSON file derived purely from sources
    (markers / anchors / `.true-up.json` seed), so the *real* source of truth is the repo's tracked
    content, never a DB. Committing the graph blob is **optional**: `.gitignore` ships ignoring
    `.true-up/`, and `--check` (working-tree freshness) works whether or not you commit it. For repos
-   that DO commit the graph, `--check --committed` is the drift gate that catches "committed a source
-   change without re-staging the regenerated graph" (an untracked graph fails it). Do not claim the
-   graph "is a committed JSON file" unconditionally — that was an overclaim; it contradicted the shipped
-   `.gitignore`. (A derived SQLite cache is a future option *only* for query-at-scale — never the source
-   of truth.)
+   that DO commit/track the graph, `--check --committed` is the drift gate that catches "source changed
+   without the regenerated graph" (a missing/untracked graph fails it). Git mode prefers the staged blob,
+   then `HEAD`; jj-only mode reads `@`. Do not claim the graph "is a committed JSON file" unconditionally
+   — that was an overclaim; it contradicted the shipped `.gitignore`. (A derived SQLite cache is a future
+   option *only* for query-at-scale — never the source of truth.)
 8. **Read-only wrt content (the write invariant).** true-up NEVER modifies/creates/deletes a content
    file. Its entire write surface is three paths: `.true-up/depgraph.json` (bare build), `.true-up.json`
-   (`init`, no-clobber), and `.git/hooks/*` (opt-in `hooks --install`). `run` mutates content ONLY by
+   (`init`, no-clobber), and `.git/hooks/*` (opt-in Git-backed `hooks --install`). `run` mutates content ONLY by
    executing user-declared external generators (`execFileSync` of the edge's `via`) — true-up's own code
    authors no prose/code (it emits an advisory worklist; "this CLI never edits prose"). `--no-write` (a
    global, like `--json`) persists NOTHING — build computes in memory, `--impact`/`run` fall back to an
    in-memory build, `run --no-write` is a dry-run. ENFORCED by the T35 keystone (snapshot every file
    before/after every read-side command → zero content-byte change) + T38 (`--no-write` writes nothing).
+   A tracked generated graph under `.true-up/` is still part of the write surface and MUST remain
+   writable; only tracked *content* outputs are refused (T14b prevents the 0.1.1 regression).
    Edges are declarable **marker-free** via fact-granular `seed` (`to: path#fact` → JSON-key / span /
    symbol), with fail-loud parity (a bad seed target is a hard error, not a dropped edge). Do NOT add a
    parallel `.true-up.facts.json` hash sidecar — `--check --committed` already IS the stored-expected-hash

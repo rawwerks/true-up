@@ -42,7 +42,7 @@ query, not a judgment call:
 
 ```sh
 true-up status              # one call: what's stale since the last commit, and what to run next
-true-up run --since HEAD~1  # regenerate the mechanical deps, list the prose a human should review
+true-up run --since HEAD~1  # Git base; use --since @- in jj-only repos
 true-up gate               # CI/pre-commit: exit 1 if anything is stale or leaks — deterministic
 ```
 
@@ -53,9 +53,9 @@ ever review the small list of prose it can't safely rewrite.
 
 | | |
 |---|---|
-| 🎯 **Deterministic** | Impact comes from a content-hashed graph + git — never an LLM. Reproducible across machines and CI. |
-| 🔒 **Read-only** | It never modifies, creates, or deletes your content. Its only writes are its own graph cache and (opt-in) git hooks. |
-| 🧬 **Git-native** | The graph is plain JSON derived from tracked files. No server, no database, commit-optional. |
+| 🎯 **Deterministic** | Impact comes from a content-hashed graph + your VCS — never an LLM. Reproducible across machines and CI. |
+| 🔒 **Read-only** | It never modifies, creates, or deletes your content. Its only writes are its own graph cache and (opt-in, Git-backed) hooks. |
+| 🧬 **Git/jj-native** | The graph is plain JSON derived from tracked files. No server, no database, commit-optional. |
 | 🌍 **Any language** | Mark a source-of-truth with a comment anchor (works in any language), or auto-extract code symbols with tree-sitter. |
 | 🪶 **Lean** | The core is zero-dependency; `npx true-up` stays small (tree-sitter is an optional add-on). |
 | 🤖 **Agent-ready** | `--json` on every command (uniform `ok` + `_v`), a one-call `status`, and an in-tool `robot-docs` handbook. |
@@ -139,11 +139,11 @@ uniform `ok` boolean.
 |---|---|---|
 | `true-up status` | read-only orientation in one call: built? stale? what changed + what to run next | 0 (always — it's a probe) |
 | `true-up build` (or bare `true-up`) | build the dependency graph (`out`, default `.true-up/depgraph.json`) | 0 (1 on an unresolved anchor; 2 on ill-typed config) |
-| `true-up --check [--committed]` | is the graph stale? `--committed` checks the committed/staged graph (the CI drift gate) | 1 if stale |
+| `true-up --check [--committed]` | is the graph stale? `--committed` checks the VCS-stored graph (Git: staged/HEAD; jj-only: `@`) | 1 if stale |
 | `true-up --impact <path\|path#fact>… [--since <ref>]` | what becomes stale if that path/fact changes | 0 (2 on unknown target / bad ref) |
 | `true-up run [--since <ref>] [--strict]` | the loop: detect → regenerate mechanical deps → list advisory prose → verify | 1 if not green (2 under `--strict` when advisory review is pending) |
 | `true-up gate [--committed]` | one CI/pre-commit stage: `--check` + `--policy` + `--externalities` | **1 if any sub-check fails** |
-| `true-up hooks [--install\|--uninstall\|--ci] [--force]` | wire (or remove) a per-repo pre-commit + pre-push gate, or print a CI snippet | 0 (2 if not a git repo) |
+| `true-up hooks [--install\|--uninstall\|--ci] [--force]` | wire (or remove) Git hooks in a Git-backed repo, or print a CI snippet | 0 (2 if no Git hooks dir) |
 | `true-up --policy [--report]` | lint files against their declared zone rules (path leaks, visibility) | **1 on violations** (`--report` → 0) |
 | `true-up --externalities [--report]` | scan public files for machine-local path leaks (`/home/you/…`) | **1 on leaks** (`--report` → 0) |
 | `true-up --verify-scope [--since <ref>]` | guard: every changed file must be explained by the graph | 1 if an edit is out of scope |
@@ -153,11 +153,11 @@ uniform `ok` boolean.
 | `true-up --version` · `--help` | version · command table (writes nothing) | 0 |
 
 **Global flags:** `--repo <path>` (operate on another repo — defaults to `$TRUE_UP_REPO`, then the
-git toplevel of your CWD), `--json` (structured output), `--no-write` (compute in memory, persist
+Git/jj toplevel of your CWD), `--json` (structured output), `--no-write` (compute in memory, persist
 nothing).
 
 Exit codes are a documented dictionary: **0** = ok/clean, **1** = a gate failed (stale / leak /
-not-green), **2** = usage error (unknown command, bad ref, not a git repo, bad config). Errors name
+not-green), **2** = usage error (unknown command, bad ref, not a Git/jj repo, bad config). Errors name
 the exact command to run instead.
 
 ---
@@ -255,13 +255,14 @@ true-up is built to be driven by coding agents:
 
 **Does it edit my files?** No. It only ever writes its own graph cache (`.true-up/` — add it to your
 `.gitignore` if you treat the graph as a regenerable cache), `.true-up.json` on `init` (never
-overwriting), and git hooks if you opt in. `run` executes only the generators *you* declare;
+overwriting), and Git hooks if you opt in. `run` executes only the generators *you* declare;
 `--no-write` persists nothing at all.
 
 **Do I have to commit the graph?** No. By default it's a regenerable cache and `--check` verifies
-working-tree freshness. If you want CI to fail on drift, commit the graph and use `--check --committed`.
+working-tree freshness. If you want CI to fail on drift, commit or track the graph and use
+`--check --committed`; tracked generated graph paths under `.true-up/` are allowed.
 
-**Does it need an LLM or network?** No. It's deterministic and offline — just git + Node.
+**Does it need an LLM or network?** No. It's deterministic and offline — just Git or jj + Node.
 
 **What languages?** Comment anchors and JSON facts work everywhere. Tree-sitter symbol extraction
 covers Python, Rust, Go, JS, TS, C, and C++ (opt-in).

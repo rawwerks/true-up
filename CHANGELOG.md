@@ -8,10 +8,27 @@ surface in [`meta/contract.json`](meta/contract.json) (`true-up capabilities`, `
 Scope: from the initial commit through the first tagged release. Links point at the canonical
 commit pages on GitHub (`rawwerks/true-up`). No GitHub *Releases* existed before `v0.1.0`.
 
+## [0.1.2] - 2026-06-22
+
+A compatibility patch for real-world committed-graph and Jujutsu workspaces. No breaking changes.
+
+### Added
+- **jj-only repo support.** true-up now discovers non-colocated Jujutsu repos (`jj git init
+  --no-colocate`) and uses jj primitives for file listing, span-anchor search, changed paths,
+  historical file content, rev validation, and the `--check --committed` graph comparison. Colocated jj
+  repos continue to use the Git path.
+
+### Fixed
+- **Committed graph output is writable again when explicitly configured.** `0.1.1` refused to rebuild
+  when `.true-up.json` explicitly set `"out": ".true-up/depgraph.json"` and that generated graph was
+  tracked. That broke the committed-graph discipline. true-up now allows tracked generated graph paths
+  under `.true-up/` while still refusing tracked content outputs like `README.md`.
+
 ## Version timeline
 
 | Version | Date | Summary |
 |---|---|---|
+| [0.1.2](#012--2026-06-22) | 2026-06-22 | jj-only workspace support plus the committed-graph output fix for repos that intentionally track `.true-up/depgraph.json`. |
 | [0.1.1](#011--2026-06-22) | 2026-06-22 | Docs rewritten for users (README no longer leaked internal/maintainer framing); a doc-fact-check found and fixed real drift (a README config example that failed to build, an `init` exit-code claim, an installer `--help` source leak); six deterministic doc/marker-drift gates added so it can't recur. |
 | [0.1.0](#010--2026-06-22) | 2026-06-22 | First tagged release: the deterministic, git-native truing-up engine — language-agnostic, read-only-by-design, marker-free, self-dogfooding. |
 
@@ -134,4 +151,6 @@ with a regression test (`tests/engine.sh` T40–T72).
 - **Determinism:** the graph is byte-stable (sorted, no timestamps); pin the tool version for a gate
   shared across machines.
 
+[0.1.2]: https://github.com/rawwerks/true-up/releases/tag/v0.1.2
+[0.1.1]: https://github.com/rawwerks/true-up/releases/tag/v0.1.1
 [0.1.0]: https://github.com/rawwerks/true-up/releases/tag/v0.1.0

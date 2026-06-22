@@ -26,9 +26,10 @@ sk(){ printf '  \033[33mSKIP\033[0m %s\n' "$1"; skip=$((skip + 1)); }
 # Optional Tier-2 deps (tree-sitter). Absent on a bare clone → Tier-2 tests SKIP (honest), never FAIL.
 # Dir check (NOT `require.resolve` — web-tree-sitter is ESM-only, so require.resolve throws even when present).
 HAS_TS=0; { [ -d "$HERE/node_modules/web-tree-sitter" ] && [ -d "$HERE/node_modules/tree-sitter-wasms" ]; } && HAS_TS=1
+HAS_JJ=0; command -v jj >/dev/null 2>&1 && HAS_JJ=1
 
-FIX="$(mktemp -d)"; H=""; C=""; P=""; E=""; V=""; M=""; S=""; Y=""; Z=""; G=""; K=""; SD=""
-trap 'rm -rf "$FIX" "$H" "$C" "$P" "$E" "$V" "$M" "$S" "$Y" "$Z" "$G" "$K" "$SD"' EXIT
+FIX="$(mktemp -d)"; H=""; C=""; CG=""; P=""; E=""; V=""; M=""; S=""; Y=""; Z=""; G=""; K=""; SD=""; JJO=""; JJC=""
+trap 'rm -rf "$FIX" "$H" "$C" "$CG" "$P" "$E" "$V" "$M" "$S" "$Y" "$Z" "$G" "$K" "$SD" "$JJO" "$JJC"' EXIT
 
 # --- synthesize a target repo: steward data + a generated view + an anchored doc + a symlink ---
 git -C "$FIX" init -q
@@ -125,6 +126,20 @@ git -C "$C" add .true-up/depgraph.json && git -C "$C" -c user.email=t@t -c user.
 $TU --repo "$C" --check --committed >/dev/null 2>&1; rc=$?; [ "$rc" -eq 0 ] && ok "HIGH-3: --check --committed passes when the committed graph is fresh" || no "HIGH-3: fresh committed graph must pass"
 printf '%s\n' '{ "items": [ { "id": "a", "v": 999 } ] }' > "$C/data.json"
 $TU --repo "$C" --check --committed >/dev/null 2>&1; rc=$?; [ "$rc" -ne 0 ] && ok "HIGH-3: --check --committed catches a STALE committed blob" || no "HIGH-3: stale committed graph must fail"
+
+# T14b — a committed generated graph is allowed even when `.true-up.json` explicitly names the default
+# out path. 0.1.1 over-rejected this as "tracked content", breaking the committed-graph discipline.
+CG="$(mktemp -d)"; git -C "$CG" init -q
+printf '{"out":".true-up/depgraph.json","facts":{"data.json":[["items","id"]]},"seed":[{"from":"doc.md","to":"data.json#items.a"}]}' > "$CG/.true-up.json"
+printf '{"items":[{"id":"a","v":1}]}\n' > "$CG/data.json"; printf 'a <!-- fact: data.json#items.a -->\n' > "$CG/doc.md"
+$TU --repo "$CG" >/dev/null 2>&1
+git -C "$CG" add -A && git -C "$CG" -c user.email=t@t -c user.name=t commit -qm graph
+$TU --repo "$CG" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && ok "committed graph: explicit tracked .true-up/depgraph.json remains writable" || no "explicit tracked graph path must not be mistaken for content"
+$TU --repo "$CG" gate >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && ok "committed graph: gate accepts explicit tracked .true-up/depgraph.json" || no "gate must not reject an explicit tracked generated graph"
+$TU --repo "$CG" gate --committed >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && ok "committed graph: gate --committed accepts explicit tracked .true-up/depgraph.json" || no "gate --committed must not reject an explicit tracked generated graph"
 
 # T15 — LIMITATION fix: a declared (seed) edge to a code file (e.g. .py) is not silently dropped
 P="$(mktemp -d)"; git -C "$P" init -q
@@ -621,6 +636,62 @@ echo "$ihelp" | grep -Eq "Tier 1|Tier 2|Axiom [0-9]" && jargon_hits="$jargon_hit
 # T78 — INSTALLER --help MUST NOT LEAK SOURCE (the help handler seds a comment range; an over-wide
 # range prints real code — the audit caught exactly this).
 echo "$ihelp" | grep -qE 'set -euo pipefail|^REPO_SLUG=|umask |shopt -s' && no "install.sh --help leaks source code (sed range overshoots the comment header)" || ok "install.sh --help renders only the comment header (no source leak)"
+
+# ============================================================================
+# JJ-ONLY VCS CONFORMANCE. These are harness-engineering guardrails for the bug class:
+# true-up used to require `git rev-parse --show-toplevel`, which excludes non-colocated jj repos
+# (`jj git init --no-colocate`: .jj exists, no .git in the worktree). Colocated jj already works via
+# Git plumbing; these tests pin the jj-only adapter surface directly.
+# ============================================================================
+if [ "$HAS_JJ" = 1 ]; then
+  JJO="$(mktemp -d)"
+  jj git init --no-colocate "$JJO" >/dev/null 2>&1
+  cat > "$JJO/.true-up.json" <<'JSON'
+{
+  "facts": { "data.json": [["items", "id"]] },
+  "zones": [
+    { "path": "", "visibility": "public", "audience": "world", "intent": "public-default", "rules": ["no-machine-local-paths"] }
+  ],
+  "seed": [
+    { "from": "doc.md", "to": "data.json#items.a", "kind": "derives-facts-from" },
+    { "from": "span-doc.md", "to": "tool.py#api", "kind": "derives-facts-from" }
+  ]
+}
+JSON
+  printf '{"items":[{"id":"a","v":1}]}\n' > "$JJO/data.json"
+  printf 'a <!-- fact: data.json#items.a -->\n' > "$JJO/doc.md"
+  printf 'span <!-- fact: tool.py#api -->\n' > "$JJO/span-doc.md"
+  printf '%s\n' '# true-up:anchor id=api' 'def f():' '    return 1' '# true-up:end' > "$JJO/tool.py"
+
+  js="$($TU --repo "$JJO" --json build 2>/dev/null)"; rc=$?
+  { [ "$rc" -eq 0 ] && printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===true&&d.inert===false&&d.factNodes>=2&&d.edges>=3?0:1)'; } && ok "jj-only: build creates a non-inert graph with JSON + span facts" || no "jj-only build must work without a worktree .git (rc=$rc)"
+  $TU --repo "$JJO" --check >/dev/null 2>&1 && ok "jj-only: --check passes after build" || no "jj-only --check must pass after build"
+  $TU --repo "$JJO" --impact 'data.json#items.a' 2>/dev/null | grep -q 'doc.md' && ok "jj-only: --impact resolves JSON fact dependents" || no "jj-only --impact JSON fact"
+  $TU --repo "$JJO" --impact 'tool.py#api' 2>/dev/null | grep -q 'span-doc.md' && ok "jj-only: span anchors are discovered without git grep" || no "jj-only span anchor impact"
+
+  jj -R "$JJO" commit -m init --no-pager >/dev/null 2>&1
+  printf '{"items":[{"id":"a","v":2}]}\n' > "$JJO/data.json"
+  out="$($TU --repo "$JJO" --impact --since @- 2>/dev/null)"; echo "$out" | grep -q 'doc.md' && ok "jj-only: --impact --since @- uses jj revsets" || no "jj-only --since @- impact"
+  $TU --repo "$JJO" --impact --since not-a-real-jj-rev >/dev/null 2>&1; [ "$?" -eq 2 ] && ok "jj-only: bad --since revset exits 2" || no "jj-only bad --since must fail loud"
+  js="$($TU --repo "$JJO" --check --committed --json 2>/dev/null)"; rc=$?
+  { [ "$rc" -eq 1 ] && printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===false&&d.mode==="committed"?0:1)'; } && ok "jj-only: --check --committed fails on stale graph in @" || no "jj-only committed gate must fail on stale graph (rc=$rc)"
+  $TU --repo "$JJO" build >/dev/null 2>&1
+  $TU --repo "$JJO" --check --committed >/dev/null 2>&1 && ok "jj-only: --check --committed passes once @ includes rebuilt graph" || no "jj-only committed gate must pass after rebuild"
+  printf 'path: /home/someuser/secret\n' > "$JJO/leak.md"
+  out="$($TU --repo "$JJO" --externalities 2>/dev/null)"; echo "$out" | grep -q '\[high\]' && ok "jj-only: externalities scans jj files" || no "jj-only externalities must scan files"
+  $TU --repo "$JJO" hooks --install >/dev/null 2>&1; [ "$?" -eq 2 ] && ok "jj-only: hooks --install fails loud without git hooks" || no "jj-only hooks install must fail loud"
+
+  JJC="$(mktemp -d)"
+  jj git init --colocate "$JJC" >/dev/null 2>&1
+  printf '{"facts":{"data.json":[["items","id"]]},"seed":[{"from":"doc.md","to":"data.json#items.a"}]}\n' > "$JJC/.true-up.json"
+  printf '{"items":[{"id":"a","v":1}]}\n' > "$JJC/data.json"
+  printf 'a <!-- fact: data.json#items.a -->\n' > "$JJC/doc.md"
+  $TU --repo "$JJC" build >/dev/null 2>&1
+  jj -R "$JJC" commit -m init --no-pager >/dev/null 2>&1
+  $TU --repo "$JJC" --check --committed >/dev/null 2>&1 && ok "colocated jj: existing Git-backed behavior still passes" || no "colocated jj regression"
+else
+  sk "jj-only VCS conformance (jj binary not installed)"
+fi
 
 echo
 echo "engine tests: ${pass} passed, ${fail} failed, ${skip} skipped"

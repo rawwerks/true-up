@@ -160,13 +160,15 @@ sidecar's edge is just an auditable one-line `.true-up.json` diff a reviewer sig
   fresh rebuild. This is all you need if you don't track the graph (the default `.gitignore` may
   exclude `.true-up/`); regenerate it locally before relying on `--impact`/`run`.
 - `--check --committed` — **the drift gate** for repos that *do* commit the graph. It compares a
-  fresh rebuild to the **committed-or-staged** graph blob (staged `:<out>` preferred, else
-  `HEAD:<out>`), and exits 1 if they differ. It also exits 1 if the graph is **untracked** (an
-  untracked graph would otherwise give false assurance). Wire this into pre-commit/CI to catch
-  "committed a source change without re-staging the regenerated graph."
+  fresh rebuild to the **VCS-stored** graph blob. In Git repos, the staged `:<out>` blob is preferred
+  (pre-commit), then `HEAD:<out>` (CI). In jj-only repos, it reads `@`. It exits 1 if they differ or if
+  the graph is absent from that VCS view. Wire this into pre-commit/CI to catch "source changed without
+  the regenerated graph."
 
-If you choose to commit the graph, make sure `out` is **not** gitignored so the staged/HEAD blob
-exists for `--check --committed` to compare against.
+If you choose to commit/track the graph, make sure `out` is **not** ignored so the VCS blob exists for
+`--check --committed` to compare against. Explicitly setting `"out": ".true-up/depgraph.json"` is
+compatible with committing that generated graph; true-up still refuses tracked content paths outside
+the generated graph area.
 
 ## `init` — scaffold a starter config
 

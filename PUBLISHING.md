@@ -1,8 +1,9 @@
-# Publishing true-up to npm — handoff for a credentialed agent
+# Publishing true-up@0.1.2 to npm — handoff for a credentialed agent
 
-**Status: the repo is publish-ready.** `true-up@0.1.0` (unscoped, **public**) is fully prepared,
-validated by one local command, and tagged `v0.1.0`. The **only** thing you supply is npm credentials.
-Do not edit source, metadata, or the version.
+**Status: the repo is publish-ready for `true-up@0.1.2`.** The package is unscoped and public. The
+release metadata, changelog, docs, harness, local commit, and local annotated tag are prepared; the
+credentialed agent should only supply npm credentials, re-run the trust anchor, publish, and then push
+the already-prepared commit/tag if authorized. Do not edit source, metadata, or the version.
 
 The trust anchor is the local CI — **`npm run ci`** ([`scripts/ci.sh`](scripts/ci.sh)) — which runs the
 whole chain and exits nonzero on any failure: fixture suite + self-gate + contract `--check` + `npm pack`
@@ -14,15 +15,14 @@ coherence. It is **not** dependent on GitHub Actions (that workflow only mirrors
 
 ```sh
 cd <true-up repo>
-git fetch --tags origin && git checkout v0.1.0   # publish from the tagged, validated commit
+git fetch --tags origin
+git checkout main                                 # publish from the local release commit
+git tag --points-at HEAD | grep -qx 'v0.1.2'      # MUST be tagged exactly for this release
 git status --porcelain                            # MUST be empty (clean tree)
-npm install                                        # install devDeps (tree-sitter) so `npm run ci` runs the
-                                                   #   FULL Tier-2 suite. (npm run ci self-bootstraps this too,
-                                                   #   but doing it here makes the preflight explicit.)
 node -p "require('./package.json').private"        # MUST print: undefined  (the private gate is gone)
 npm whoami                                         # MUST print your npm user (publish rights). Else: npm login
-npm view true-up version                           # MUST be E404 or any version != 0.1.0. If it already
-                                                   #   shows 0.1.0 → STOP, already published; do not republish.
+npm view true-up version                           # At handoff time this was 0.1.1; re-confirm it is != 0.1.2.
+npm view true-up@0.1.2 version                     # MUST be E404/404. If it prints 0.1.2 → STOP, already published.
 npm run ci                                         # MUST exit 0 — the trust anchor. If red, STOP and report.
 ```
 
@@ -42,28 +42,30 @@ npm publish
 ## Post-publish verification (from a clean dir, e.g. `cd $(mktemp -d)`)
 
 ```sh
-npm view true-up version                  # MUST now print 0.1.0
-npx -y true-up@0.1.0 --version            # MUST print: true-up 0.1.0
-npx -y true-up@0.1.0 capabilities | head  # valid JSON; npx will NOT pull tree-sitter (peer deps are optional)
+npm view true-up version                  # MUST now print 0.1.2
+npx -y true-up@0.1.2 --version            # MUST print: true-up 0.1.2
+npx -y true-up@0.1.2 capabilities | head  # valid JSON; npx will NOT pull tree-sitter (peer deps are optional)
 ```
 
-Then push the tag (the authorized public action for this task):
+Then, if you are also authorized to update GitHub, push the prepared commit and tag with the local
+safe wrapper:
 
 ```sh
-git push origin v0.1.0
+safe-push origin main
+safe-push origin v0.1.2
 ```
 
 ## Rollback caveat
 
-- `npm unpublish true-up@0.1.0` is allowed **only within 72h** of publishing; after that npm forbids it —
-  ship a patch (`0.1.1`) instead.
-- If the published tarball is wrong, prefer `npm deprecate true-up@0.1.0 "use 0.1.1"` + a fixed release
+- `npm unpublish true-up@0.1.2` is allowed **only within 72h** of publishing; after that npm forbids it —
+  ship a patch (`0.1.3`) instead.
+- If the published tarball is wrong, prefer `npm deprecate true-up@0.1.2 "use 0.1.3"` + a fixed release
   over unpublish.
 
 ## What's already done (so you don't have to)
 
-`private` removed · `files` allowlist (12-file, ~45 kB tarball — no tests/CI/dev cruft) · tree-sitter
+`private` removed · `files` allowlist (12-file tarball — no tests/CI/dev cruft) · tree-sitter
 moved to **optional peer deps** so `npx true-up` stays lean (core is zero-dep; symbols users add
 `web-tree-sitter@0.24.7 tree-sitter-wasms@0.1.13`) · `repository`/`homepage`/`bugs`/`keywords` set ·
-`prepublishOnly` → `npm run ci` · `CHANGELOG.md` + `README` npx snippet · `v0.1.0` tagged · `npm run ci`
-green. Name `true-up` was unclaimed at prep time (re-confirm in preflight).
+`prepublishOnly` → `npm run ci` · `CHANGELOG.md` release notes · `v0.1.2` locally tagged · `npm run ci`
+green. Registry latest was `0.1.1` at handoff time; re-confirm in preflight.

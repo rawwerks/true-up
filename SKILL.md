@@ -5,7 +5,7 @@ description: Keep a repo's docs/data/code in sync after a change. Use when a cha
 
 # true-up
 
-A deterministic, git-native dependency-graph CLI: it knows what each artifact depends on (at
+A deterministic Git/jj-native dependency-graph CLI: it knows what each artifact depends on (at
 fact-level granularity) and computes — without guessing — what a change makes stale.
 
 ## When to use
@@ -38,7 +38,7 @@ true-up is not on PATH after a clone. Run it cross-repo by pointing it at the ta
 node bin/true-up --repo <target-repo> [command]
 ```
 
-`--repo` resolves the target; absent it, the tool uses `$TRUE_UP_REPO`, then the git toplevel of
+`--repo` resolves the target; absent it, the tool uses `$TRUE_UP_REPO`, then the Git/jj toplevel of
 the CWD, then the CWD. All paths/targets below are relative to that target repo. The `true-up`
 shorthand in the examples is that same command.
 
@@ -48,13 +48,13 @@ shorthand in the examples is that same command.
 true-up status                   # START HERE: read-only orientation in ONE call (built? stale? + nextCommands[]); always exit 0
 true-up robot-docs               # paste-ready in-tool agent handbook (task → command)
 true-up build                    # build the graph (.true-up/depgraph.json)  (bare `true-up` is an alias)
-true-up --impact --since HEAD~1  # what a change made stale: mechanical (regen) vs advisory (review)
-true-up run --since HEAD~1       # the truing-up gate TODAY: detect → regenerate mechanical → advisory worklist → verify
+true-up --impact --since HEAD~1  # Git base; in jj-only repos use --since @-
+true-up run --since HEAD~1       # detect → regenerate mechanical → advisory worklist → verify (jj-only: --since @-)
 true-up gate                     # one CI/pre-commit stage: --check + --policy + --externalities; EXIT 1 on any failure (--json for per-check status)
 true-up hooks --install          # wire a per-repo pre-commit + pre-push gate (--ci prints a CI snippet; --uninstall removes)
-true-up --verify-scope --since HEAD~1  # anti-code-golf gate: exit 1 if any changed file is outside the deterministic blast radius
+true-up --verify-scope --since HEAD~1  # anti-code-golf gate (jj-only: --since @-)
 true-up --check                  # stale-graph gate on the ON-DISK graph (exit 1 if it drifted from a fresh build)
-true-up --check --committed      # drift gate on the COMMITTED/STAGED graph blob (exit 1 if stale; exit 1 if untracked)
+true-up --check --committed      # drift gate on the VCS-stored graph (Git: staged/HEAD; jj-only: @)
 true-up --policy                 # zone/visibility lint (exit 1 on violations; --report = exit 0)
 true-up --externalities          # machine-local-path leak scan (exit 1 on leaks; --report = exit 0)
 true-up init                     # scaffold a starter .true-up.json (idempotent: no-op + exit 0 if one exists)
@@ -111,9 +111,10 @@ never decides). Use `maintenance` after a change; run `audit` deliberately (pre-
 
 `.true-up/depgraph.json` is regenerable from sources + markers + `.true-up.json`, so committing it is
 optional. If you **don't** commit it, `--check` (working-tree freshness) is your gate. If you **do**
-commit it (so "git is the database" and reviewers can diff the graph), `--check --committed` is the
-drift gate that catches "committed a source change without re-staging the regenerated graph" — and it
-fails closed when the graph is untracked. Pick one model per repo and gate accordingly.
+commit or track it (so the VCS is the database and reviewers can diff the graph), `--check --committed`
+is the drift gate that catches "source changed without the regenerated graph" — and it fails closed
+when the graph is absent from the VCS view. In Git it reads the staged blob first, then `HEAD`; in
+jj-only repos it reads `@`. Pick one model per repo and gate accordingly.
 
 ## Suppressing legitimate path examples
 

@@ -170,3 +170,7 @@ without any of the above.
 On the roadmap: the optional Claude Code `/workflow` that *applies* the advisory rewrites,
 an installer that wires the git hooks + CI into a target repo, and mycelium note enrichment.
 See [AGENTS.md](AGENTS.md) for the architecture and invariants.
+
+## License
+
+MIT © 2026 Raymond Weitekamp. See [LICENSE](LICENSE).

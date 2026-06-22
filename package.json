@@ -12,6 +12,6 @@
     "web-tree-sitter": "0.24.7",
     "tree-sitter-wasms": "0.1.13"
   },
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true
 }

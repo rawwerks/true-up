@@ -13,8 +13,10 @@ optional agent layer only ever *proposes* minimal prose edits.
 - **Directed, causal edges only.** `from` = dependent → `to` = source-of-truth. Direction comes
   from a generator marker, a declared steward, an inline fact-anchor, or a symlink — never from
   correlation (co-change/embeddings can suggest, never assign the arrow).
-- **Fact/span granularity.** Steward data files decompose into per-fact nodes (content-hashed), so
-  a dependent is stale only when the *specific* fact it cites moves (early-cutoff).
+- **Fact/span granularity, in any language.** Steward JSON files decompose into per-fact nodes; a
+  bracketed code region (`true-up:anchor`/`true-up:end` — any language, zero-dep) or a tree-sitter
+  symbol (opt-in `"symbols": true`) is a content-hashed fact too — so a dependent is stale only when
+  the *specific* fact / region / symbol it cites moves (early-cutoff), not when the file changes.
 - **Fail-loud.** A fact-anchor that doesn't resolve is a hard error (stable-ID discipline).
 - **Git-native, commit-optional.** The graph is plain JSON derived from tracked sources — no
   service, no DB. The default `out` (`.true-up/depgraph.json`) is gitignored, so it acts as a
@@ -110,14 +112,39 @@ CLI **never edits prose** — the advisory rewrites are left to you. The agentic
 `/workflow` that would *apply* those rewrites automatically is on the roadmap, not yet built; for
 now, "run the workflow" means `true-up run`.
 
+## Code as a source-of-truth
+
+A doc can derive from *code* in any language, fact-granular. Three ways to expose a fact:
+
+1. **JSON stewards** — a JSON file with top-level arrays-of-objects, declared in `facts`.
+2. **Span anchors (any language, zero-dep)** — bracket a region with a paired comment token; the
+   token rides whatever comment syntax the language already has, so no parser is needed:
+
+   ```python
+   # true-up:anchor id=parse_config
+   def parse_config(path): ...
+   # true-up:end id=parse_config
+   ```
+
+   The region's bytes become the fact `parse_config`. A doc anchors to it the usual way:
+   `<!-- fact: src/app.py#parse_config -->`.
+3. **Symbols (opt-in, tree-sitter)** — set `"symbols": true` in `.true-up.json` to auto-extract
+   top-level definitions (Python / Rust / Go / JS / TS / C / C++) as facts named after the symbol —
+   no manual markers. This needs the optional `web-tree-sitter` + `tree-sitter-wasms` deps (run
+   `npm install` in the true-up tool dir); if `"symbols"` is enabled but they're absent, the build
+   **fails loud** (exit 2) rather than silently producing a different, non-deterministic graph.
+
+In all three, **edges stay explicit** — tree-sitter (and span scanning) only produce better *nodes*;
+a doc must still anchor (`<!-- fact: … -->`) or be a declared `seed` for an edge to exist. Correlation
+never assigns the arrow. A code file is also a valid **seed-edge endpoint** at file granularity
+without any of the above.
+
 ## Scope and limitations
 
-- **Steward facts are JSON-array-only.** A file becomes a per-fact steward only when it is JSON
-  with top-level arrays-of-objects (declared in `facts`). Code files (e.g. `.py`) can't be
-  decomposed into facts; they are valid **seed-edge endpoints** (a declared edge to a tracked
-  code file creates a node) but propagate at file granularity, not fact granularity.
-- **Empty graph is inert.** With no declared facts or edges the drift layer passes `--check`
-  trivially; the build prints a `NOTICE` to that effect. Declare facts/seed in `.true-up.json`.
+- **Empty graph is inert.** With no facts, anchors, symbols, or seed edges, the drift layer passes
+  `--check` trivially; the build prints a `NOTICE` to that effect. Give it something to track.
+- **Symbols are top-level + opt-in.** Tree-sitter extraction lifts module-level definitions (nested
+  methods aren't auto-named yet — reach them with a span anchor). It's off unless `"symbols": true`.
 
 ## Status
 

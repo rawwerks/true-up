@@ -8,6 +8,10 @@
     "test": "bash tests/engine.sh"
   },
   "engines": { "node": ">=18" },
+  "optionalDependencies": {
+    "web-tree-sitter": "0.24.7",
+    "tree-sitter-wasms": "0.1.13"
+  },
   "license": "UNLICENSED",
   "private": true
 }

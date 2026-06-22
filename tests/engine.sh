@@ -12,8 +12,8 @@ pass=0 ; fail=0
 ok(){ printf '  \033[32mPASS\033[0m %s\n' "$1"; pass=$((pass + 1)); }
 no(){ printf '  \033[31mFAIL\033[0m %s\n' "$1"; fail=$((fail + 1)); }
 
-FIX="$(mktemp -d)"; H=""; C=""; P=""; E=""; V=""; M=""
-trap 'rm -rf "$FIX" "$H" "$C" "$P" "$E" "$V" "$M"' EXIT
+FIX="$(mktemp -d)"; H=""; C=""; P=""; E=""; V=""; M=""; S=""; Y=""; Z=""; G=""
+trap 'rm -rf "$FIX" "$H" "$C" "$P" "$E" "$V" "$M" "$S" "$Y" "$Z" "$G"' EXIT
 
 # --- synthesize a target repo: steward data + a generated view + an anchored doc + a symlink ---
 git -C "$FIX" init -q
@@ -178,6 +178,109 @@ $TU --repo "$FIX" --impact --json 'data.json#items.a' 2>/dev/null | node -e 'con
 # T24 — ergonomics: a mistyped command gets a 'did you mean' suggestion (Axiom 7 intent inference)
 err="$($TU --repo "$FIX" --externalites 2>&1)"; rc=$?
 { [ "$rc" -eq 2 ] && echo "$err" | grep -q 'did you mean: --externalities'; } && ok "did-you-mean suggests the nearest command on a typo" || no "must suggest nearest command on a typo"
+
+# T25 — Tier 1: language-agnostic SPAN ANCHORS make CODE a content-hashed source-of-truth.
+# A paired comment-token region (any language; here Python — the .py-is-inert gap) becomes a
+# fact node; a doc that anchors to it gets an advisory derives-facts-from edge.
+S="$(mktemp -d)"; git -C "$S" init -q
+printf '%s\n' '# true-up:anchor id=parse_config' 'def parse_config(path):' '    return load(path)' '# true-up:end id=parse_config' > "$S/parser.py"
+printf '%s\n' '# API' 'parse_config loads the config. <!-- fact: parser.py#parse_config -->' > "$S/api.md"
+printf '%s\n' '{ "zones": [ {"path":"","visibility":"public","audience":"world","intent":"public","rules":[]} ], "seed": [] }' > "$S/.true-up.json"
+git -C "$S" add -A && git -C "$S" -c user.email=t@t -c user.name=t commit -qm init
+$TU --repo "$S" >/dev/null 2>&1 && ok "Tier1: build succeeds with a code span anchor + doc anchor" || no "Tier1: build must succeed with a code span anchor"
+$TU --repo "$S" --impact 'parser.py#parse_config' 2>/dev/null | grep -q 'api.md' && ok "Tier1: a doc derives-facts-from a CODE span (language-agnostic)" || no "Tier1: code span fact-edge must resolve"
+
+# T25b — a malformed span is harmless ON ITS OWN (so files can document the token without self-tripping),
+# but a doc that ANCHORS to a span which never formed a complete pair FAILS LOUD (unresolved-anchor backstop).
+printf '%s\n' '# true-up:anchor id=orphan' 'def f(): return 1' > "$S/lonely.py"
+$TU --repo "$S" >/dev/null 2>&1 && ok "Tier1: a lone unclosed span nobody depends on is harmless (no self-trip)" || no "Tier1: lone unclosed span must not fail the build"
+printf '%s\n' 'see <!-- fact: lonely.py#orphan -->' > "$S/needsit.md"
+out="$($TU --repo "$S" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'lonely.py#orphan'; } && ok "Tier1: a doc anchoring to a non-formed span FAILS LOUD (names it)" || no "Tier1: anchor to a missing span must fail-loud"
+rm -f "$S/lonely.py" "$S/needsit.md"; $TU --repo "$S" >/dev/null 2>&1
+
+# T25c — INCIDENT guard (mirror of T5b): span-anchor EXAMPLES inside markdown code formatting
+# (a doc explaining THIS feature) must NOT be parsed as live spans.
+printf '%s\n' '# how-to' 'Bracket a region:' '```' '# true-up:anchor id=demo' 'code here' '# true-up:end id=demo' '```' > "$S/howto.md"
+$TU --repo "$S" >/dev/null 2>&1 && ok "Tier1: span examples in markdown code fences do not fail-loud" || no "Tier1: fenced span examples must not fail-loud"
+grep -q 'fact:howto.md#demo' "$S/.true-up/depgraph.json" && no "Tier1: a fenced span example must NOT create a live fact node" || ok "Tier1: fenced span example is inert (no spurious fact node)"
+rm -f "$S/howto.md"; $TU --repo "$S" >/dev/null 2>&1
+
+# T25d — EARLY-CUTOFF for span facts: editing a span's BODY stales its anchored doc via --since;
+# editing the file OUTSIDE the span does NOT (the whole point of fact-granular hashing).
+git -C "$S" checkout -- parser.py 2>/dev/null
+printf '%s\n' '# true-up:anchor id=parse_config' 'def parse_config(path):' '    return load2(path)  # body changed' '# true-up:end id=parse_config' > "$S/parser.py"
+$TU --repo "$S" >/dev/null 2>&1
+$TU --repo "$S" --impact --since HEAD 2>/dev/null | grep -q 'api.md' && ok "Tier1: editing a span BODY stales its anchored doc (--since early-cutoff)" || no "Tier1: span-body change must stale the doc via --since"
+git -C "$S" checkout -- parser.py 2>/dev/null
+printf '%s\n' '# true-up:anchor id=parse_config' 'def parse_config(path):' '    return load(path)' '# true-up:end id=parse_config' '' 'def unrelated(): pass  # outside the span' > "$S/parser.py"
+$TU --repo "$S" >/dev/null 2>&1
+$TU --repo "$S" --impact --since HEAD 2>/dev/null | grep -q 'api.md' && no "Tier1: an edit OUTSIDE the span must NOT stale the doc (early-cutoff)" || ok "Tier1: edit outside the span does not stale the doc (early-cutoff)"
+git -C "$S" checkout -- parser.py 2>/dev/null; $TU --repo "$S" >/dev/null 2>&1
+
+# T25e — a repo whose ONLY facts come from span anchors (no config "facts") is NOT inert: it has
+# real edges, so build must NOT cry INERT (the dogfood bug: `inert` ignored span facts).
+out="$($TU --repo "$S" 2>&1)"
+echo "$out" | grep -q 'INERT' && no "Tier1: a span-anchored repo must NOT be reported INERT" || ok "Tier1: span-anchored repo is not INERT (has real edges)"
+
+# T26 — Tier 2: tree-sitter SYMBOL extraction (config-driven "symbols": true) auto-lifts code
+# definitions to fact nodes with NO manual markers; a doc anchors to a symbol by name. (Opt-in,
+# optional dependency; the zero-dep core never loads tree-sitter.)
+Y="$(mktemp -d)"; git -C "$Y" init -q
+printf '%s\n' 'import os' '' 'def parse_config(path):' '    return load(path)' '' 'class Cfg:' '    def get(self):' '        return 1' > "$Y/app.py"
+printf '%s\n' '# Guide' 'parse_config reads the config. <!-- fact: app.py#parse_config -->' > "$Y/guide.md"
+printf '%s\n' '{ "symbols": true, "zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}], "seed":[] }' > "$Y/.true-up.json"
+git -C "$Y" add -A && git -C "$Y" -c user.email=t@t -c user.name=t commit -qm init
+$TU --repo "$Y" >/dev/null 2>&1 && ok "Tier2: build succeeds with symbols enabled + a symbol anchor" || no "Tier2: symbols build must succeed"
+$TU --repo "$Y" --impact 'app.py#parse_config' 2>/dev/null | grep -q 'guide.md' && ok "Tier2: a doc derives-facts-from an auto-extracted CODE SYMBOL (tree-sitter)" || no "Tier2: symbol fact-edge must resolve"
+
+# T27 — Tier 2 EARLY-CUTOFF: editing a SYMBOL's body stales docs anchored to THAT symbol via --since;
+# editing a different symbol does not (symbol-granular hashing).
+git -C "$Y" add -A && git -C "$Y" -c user.email=t@t -c user.name=t commit -qm base
+printf '%s\n' 'import os' '' 'def parse_config(path):' '    return load2(path)  # changed' '' 'class Cfg:' '    def get(self):' '        return 1' > "$Y/app.py"
+$TU --repo "$Y" >/dev/null 2>&1
+$TU --repo "$Y" --impact --since HEAD 2>/dev/null | grep -q 'guide.md' && ok "Tier2: editing a symbol BODY stales its anchored doc (--since)" || no "Tier2: symbol body change must stale the doc"
+git -C "$Y" checkout -- app.py 2>/dev/null
+printf '%s\n' 'import os' '' 'def parse_config(path):' '    return load(path)' '' 'class Cfg:' '    def get(self):' '        return 1' '' 'def helper():' '    return 2' > "$Y/app.py"
+$TU --repo "$Y" >/dev/null 2>&1
+$TU --repo "$Y" --impact --since HEAD 2>/dev/null | grep -q 'guide.md' && no "Tier2: editing a DIFFERENT symbol must NOT stale the doc (early-cutoff)" || ok "Tier2: edit of an unrelated symbol does not stale the doc"
+git -C "$Y" checkout -- app.py 2>/dev/null; $TU --repo "$Y" >/dev/null 2>&1
+
+# T28 — Tier 2 is genuinely multi-language: a C++ function's name lives in a DECLARATOR (not a name
+# field), exercising the harder extraction path (geometry-central, the top dogfood gap, is C++).
+Z="$(mktemp -d)"; git -C "$Z" init -q
+printf '%s\n' '#include <string>' '' 'int parse_input(const char* p) {' '    return 0;' '}' > "$Z/api.cpp"
+printf '%s\n' '# Docs' 'parse_input returns a status code. <!-- fact: api.cpp#parse_input -->' > "$Z/docs.md"
+printf '%s\n' '{ "symbols": true, "zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}], "seed":[] }' > "$Z/.true-up.json"
+git -C "$Z" add -A && git -C "$Z" -c user.email=t@t -c user.name=t commit -qm init
+$TU --repo "$Z" >/dev/null 2>&1
+$TU --repo "$Z" --impact 'api.cpp#parse_input' 2>/dev/null | grep -q 'docs.md' && ok "Tier2: C++ function symbol extracted via declarator + anchored (multi-language)" || no "Tier2: C++ symbol must resolve"
+
+# T29 — P0 (ergonomics): per-command flag validation. A typo'd flag must be REJECTED (exit 2 +
+# did-you-mean), never silently dropped. The worst case: --comitted downgrades the committed drift
+# gate to the worktree check (exit 1→0) — a one-char typo defeating a CI gate. (verified live)
+G="$(mktemp -d)"; git -C "$G" init -q
+printf '%s\n' '{ "items": [ { "id": "a", "v": 1 } ] }' > "$G/data.json"
+printf '%s\n' '{ "facts": { "data.json": [["items","id"]] }, "zones": [ {"path":"","visibility":"public","audience":"world","intent":"public","rules":[]} ], "seed": [] }' > "$G/.true-up.json"
+git -C "$G" add -A && git -C "$G" -c user.email=t@t -c user.name=t commit -qm init
+$TU --repo "$G" >/dev/null 2>&1
+git -C "$G" add .true-up/depgraph.json && git -C "$G" -c user.email=t@t -c user.name=t commit -qm graph
+printf '%s\n' '{ "items": [ { "id": "a", "v": 999 } ] }' > "$G/data.json"
+$TU --repo "$G" >/dev/null 2>&1   # worktree graph fresh, committed blob now stale
+out="$($TU --repo "$G" --check --comitted 2>&1)"; rc=$?
+{ [ "$rc" -eq 2 ] && echo "$out" | grep -q 'did you mean: --committed'; } && ok "P0: --comitted typo is REJECTED (exit 2 + did-you-mean), not a silent gate downgrade" || no "P0: --comitted must not silently downgrade the committed gate"
+$TU --repo "$G" --impact --snice HEAD~1 >/dev/null 2>&1; rc=$?; [ "$rc" -eq 2 ] && ok "P0: --impact --snice (typo) exits 2, not a bogus positional '0 dependents'" || no "P0: --impact typo flag must exit 2"
+$TU --repo "$G" --check --committed >/dev/null 2>&1; rc=$?; [ "$rc" -ne 2 ] && ok "P0: legit --committed still accepted (validator does not over-reject)" || no "P0: validator must not reject legit flags"
+
+# T30 — P1 (ergonomics): the rebuild hint must be runnable. Against true-up's OWN repo, relative(self)
+# is 'lib/engine.mjs' (no '..'), which is not executable — copy-paste → exit 126. Hint must say true-up.
+err="$(cd "$HERE" && node bin/true-up bogus 2>&1)"
+echo "$err" | grep -qE 'engine\.mjs|^lib/' && no "P1: self error-hint must not name the non-runnable engine path" || ok "P1: in-repo error hint is runnable (not lib/engine.mjs)"
+
+# T31 — P0 (ergonomics): run --json and --version --json must emit JSON (the contract capabilities
+# advertises). run is the mega-command agents script with | jq; both emitted human text. (verified)
+$TU --repo "$FIX" run --since HEAD --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(typeof d.green==="boolean"&&d.verify?0:1)' && ok "P0: run --json is valid structured JSON" || no "P0: run --json must be valid JSON"
+$TU --repo "$FIX" --version --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.version?0:1)' && ok "P0: --version --json is valid JSON" || no "P0: --version --json must be valid JSON"
 
 echo
 echo "engine tests: ${pass} passed, ${fail} failed"

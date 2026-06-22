@@ -13,9 +13,12 @@ internal corpus where it was proven; this repo is the standalone, repo-agnostic 
 ```
 bin/true-up        thin CLI entry → lib/engine.mjs
 lib/engine.mjs     the engine: build / --check[ --committed] / --impact / --policy / --externalities / --verify-scope / run / init / capabilities / --version / --help (every read-side cmd takes --json)
+lib/symbols.mjs    Tier 2 (OPTIONAL): tree-sitter symbol extraction. Static-imported but loads
+                   web-tree-sitter LAZILY (only when .true-up.json sets "symbols") — the zero-dep core never touches it
 tests/engine.sh    fixture-based regression harness (synthesizes a target repo, runs the real CLI)
 docs/CONFIG.md     the .true-up.json schema + the marker/anchor conventions
 examples/          an example .true-up.json
+package.json       optionalDependencies: web-tree-sitter + tree-sitter-wasms (EXACT-pinned, Tier 2 only)
 .true-up.json      true-up's own config (it trues up itself — dogfood)
 ```
 
@@ -49,8 +52,12 @@ Verify against `lib/engine.mjs` before changing any of this.
 2. **Impact is deterministic.** The worklist is content-hash + graph traversal. The LLM only
    *proposes* edits; it never decides staleness. (The prior LLM-coverage approach was
    non-deterministic and non-monotonic — that failure mode is why this rule exists.)
-3. **Per-fact granularity + early-cutoff.** Steward files (config `facts`) decompose into per-fact
-   nodes, content-hashed; an anchored dependent is stale only when *its* fact's hash moves.
+3. **Per-fact granularity + early-cutoff, in any language.** A content-hashed fact node comes from
+   one of three extractors: steward JSON (`facts`), a **span anchor** (`true-up:anchor`/`true-up:end`
+   bracketing a region of any file, zero-dep), or a **tree-sitter symbol** (opt-in `"symbols": true`).
+   An anchored dependent is stale only when *its* fact's hash moves. CRITICAL: extractors only produce
+   NODES — the edge still comes from an explicit anchor/seed/marker (invariant 1). Span/symbol code is
+   never an exception to "correlation never assigns the arrow."
 4. **Fail-loud.** An anchor that doesn't resolve to a known fact node is a hard error (stable IDs).
 5. **Mechanical vs advisory.** `generated-from` / `symlink` edges are *mechanical* (regenerate, no
    LLM). `derives-facts-from` (declared or anchored) is *advisory* (a human/LLM rewrites prose).
@@ -111,10 +118,20 @@ Provenance: these came from a real user dogfooding report (telltail v0.1.0) run 
 - **No hardcoded repo-local paths in a repo-agnostic tool.** Dead hints like `node meta/build-depgraph.mjs`
   and a hardcoded `meta/depgraph.json` would `MODULE_NOT_FOUND` when the tool runs against any other
   repo; use `rel(OUT)`/`rel(self)` so messages are correct in the target repo. (MED.)
-- **Fact-model scope is a documented boundary, not a bug.** `extractFacts` only decomposes top-level
-  JSON arrays-of-objects, and `listFiles` keeps `.md/.json/.mjs/.js`. A code-source-of-truth repo (e.g.
-  `.py`) gets 0 fact-nodes and is inert — say so. A declared (seed) edge to a tracked code file now
-  creates a minimal node instead of being dropped, and an empty graph prints a NOTICE. (LIMITATION.)
+- **Fact-model scope was a JSON-only boundary — now lifted for code (Tier 1 + Tier 2).** Historically
+  `extractFacts` only decomposed top-level JSON arrays-of-objects and `listFiles` kept `.md/.json/.mjs/.js`,
+  so a `.py` source-of-truth got 0 fact-nodes and was inert. Code is now fact-granular two ways, both
+  reusing the same fact-node/anchor/edge/since machinery: **Tier 1 span anchors** (`extractSpans`, scans
+  files containing `true-up:anchor` via `git grep -I`, zero-dep, any language) and **Tier 2 tree-sitter
+  symbols** (`lib/symbols.mjs`, opt-in `CONFIG.symbols`, optional dep, `extractSymbols`). A declared
+  (seed) edge to a tracked code file still works at file granularity. Design rules that MUST hold:
+  (a) extractors create NODES only — edges stay explicit (anchor/seed/marker); (b) Tier 2 is
+  CONFIG-driven not a transient flag, so `--check` stays deterministic, and **fails loud (exit 2)** if
+  enabled-but-deps-absent rather than silently building a symbol-less graph; (c) malformed span anchors
+  are IGNORED (not fatal) so a file can document the token without self-tripping — the backstop is the
+  unresolved fact-anchor hard error when a doc actually depends on a missing span. (Dogfood-found: the
+  build `inert` flag must key off `edges.length`, not `config.facts` — span/symbol facts make a repo
+  with empty `facts` non-inert.)
 
 ## Extending
 
@@ -128,6 +145,10 @@ Provenance: these came from a real user dogfooding report (telltail v0.1.0) run 
   can opt out: `<!-- true-up:ignore-line [rule] -->` and `<!-- true-up:ignore-next [rule] -->`. The
   optional `[rule]` scopes the suppression; omitted = all rules. Directives are matched against the
   ORIGINAL line text (so they survive even when `stripCode` would blank the span around them).
+- New symbol language (Tier 2) → add an ext entry to `LANGS` in `lib/symbols.mjs` (grammar wasm name
+  + the definition node types), confirm `tree-sitter-wasms` ships that grammar, and add a fixture
+  test. Languages with a `name` field resolve cleanly; declarator-named ones (C/C++) use `nameOf`'s
+  fallback. Pin grammar+runtime versions exactly (determinism) — a grammar bump re-hashes every symbol.
 - Keep output deterministic (sorted, no timestamps) so `--check` stays honest.
 
 ## Running it cross-repo

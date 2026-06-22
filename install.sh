@@ -248,9 +248,10 @@ if [ "$QUIET" -eq 0 ]; then
     "skill      $SKILL_STATUS" \
     "" \
     "Adopt it in a repo (run inside the target):" \
-    "  true-up init                                 # scaffold .true-up.json" \
-    "  true-up --policy && true-up --externalities  # leak/zone gate → pre-commit/CI" \
-    "  true-up --check --committed                  # drift gate (if you commit the graph)" \
+    "  true-up init             # scaffold .true-up.json" \
+    "  true-up hooks --install  # pre-commit + pre-push gate" \
+    "  true-up gate             # one CI stage: check + policy + externalities (exit nonzero on any)" \
+    "  true-up hooks --ci       # print a CI snippet" \
     "" \
     "Pin a version for deterministic gates:  npx true-up@$NEW_VER (once published)" \
     "Uninstall:  bash install.sh --uninstall"

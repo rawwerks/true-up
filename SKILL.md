@@ -47,6 +47,8 @@ shorthand in the examples is that same command.
 true-up                          # build the graph (.true-up/depgraph.json)
 true-up --impact --since HEAD~1  # what a change made stale: mechanical (regen) vs advisory (review)
 true-up run --since HEAD~1       # the truing-up gate TODAY: detect → regenerate mechanical → advisory worklist → verify
+true-up gate                     # one CI/pre-commit stage: --check + --policy + --externalities; EXIT 1 on any failure (--json for per-check status)
+true-up hooks --install          # wire a per-repo pre-commit + pre-push gate (--ci prints a CI snippet; --uninstall removes)
 true-up --verify-scope --since HEAD~1  # anti-code-golf gate: exit 1 if any changed file is outside the deterministic blast radius
 true-up --check                  # stale-graph gate on the ON-DISK graph (exit 1 if it drifted from a fresh build)
 true-up --check --committed      # drift gate on the COMMITTED/STAGED graph blob (exit 1 if stale; exit 1 if untracked)

@@ -87,6 +87,8 @@ true-up run --since HEAD~1       # detect → regenerate mechanical → advisory
 | `--impact <path\|path#fact>…` | what becomes stale if that path/fact changes | 0 (2 on bad usage/ref) |
 | `--impact --since <ref>` | same, auto-detected from `git diff` since `<ref>` | 0 (2 on a bad ref) |
 | `run [--since <ref>] [--strict]` | the deterministic loop: detect → regenerate mechanical dependents → print the advisory worklist → verify | 1 if not green; `--strict` exits 2 when advisory review is still pending |
+| `gate [--committed]` | one CI/pre-commit stage: `--check` + `--policy` + `--externalities`; the exit code is authoritative (a runner keys on it, not stdout) | **1 if any sub-check fails** |
+| `hooks [--install\|--uninstall\|--ci]` | wire (or remove) a per-repo pre-commit + pre-push gate, or print a CI snippet. Hooks fail closed if the tool is absent. | 0 (2 if not a git repo) |
 | `--policy [--report]` | lint each file against its declared zone's rules (leaks, visibility, public→private deps, ciphertext) | **1 on violations**; `--report` forces 0 |
 | `--externalities [--report]` | machine-local path leaks in public files | **1 on leaks**; `--report` forces 0 |
 | `--verify-scope [--since <ref>]` | anti-code-golf gate: every changed file must be explained by the graph | 1 if an edit is out of the blast radius |

@@ -1,4 +1,14 @@
 #!/usr/bin/env node
 // true-up — deterministic, git-native truing-up for any repo.
 // Thin entry; the engine is lib/engine.mjs (operates on a target repo via --repo / CWD + .true-up.json).
-import(new URL('../lib/engine.mjs', import.meta.url))
+import(new URL('../lib/engine.mjs', import.meta.url)).catch((e) => {
+  // If true-up is vendored as a git submodule and cloned without --recursive, lib/engine.mjs is
+  // absent — turn the cryptic ERR_MODULE_NOT_FOUND into an actionable hint instead of a stack trace.
+  if (e && (e.code === 'ERR_MODULE_NOT_FOUND' || /Cannot find module/i.test(String(e && e.message)))) {
+    process.stderr.write('true-up: engine (lib/engine.mjs) not found.\n' +
+      'If true-up is vendored as a git submodule, initialize it:\n' +
+      '  git submodule update --init --recursive\n')
+    process.exit(2)
+  }
+  throw e
+})

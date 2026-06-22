@@ -35,6 +35,8 @@ Verify against `lib/engine.mjs` before changing any of this.
 - `true-up --externalities [--report]` — machine-local-path leak scan. **EXIT 1 on leaks**; `--report` forces exit 0.
 - `true-up --verify-scope [--since <ref>]` — anti-code-golf gate: exit 1 (naming the file) if a changed file is not explained by the graph (the changed source, its regenerated/advisory dependents, or the cache). Vacuous (exit 0, stderr NOTE) on a no-edge repo. Bad ref exits 2.
 - `true-up run [--since <ref>] [--strict]` — deterministic truing-up loop; exit 1 if not GREEN (regen failed / policy violations / depgraph stale), exit 2 under `--strict` when GREEN but advisory prose review is still pending. Verify reads the `--policy` child's EXIT CODE, not its stdout.
+- `true-up gate [--committed]` — one CI stage: spawns `--check` (+`--committed`) · `--policy` · `--externalities` as children and exits **1 if ANY fails**, 0 if all pass. `--json` reports per-check status. The exit code is the contract (a runner keys on it). Build the graph first so `--check` is meaningful.
+- `true-up hooks [--install|--uninstall|--ci]` — per-repo adoption: writes/removes executable `pre-commit` + `pre-push` (resolved via `git rev-parse --git-path hooks`, honoring `core.hooksPath`/worktrees) carrying the `managed-by: true-up-hooks` marker; idempotent; backs up a pre-existing foreign hook to `*.bak`. Hooks **fail closed** if `true-up` is absent. `--ci` prints a version-pinned GH Actions snippet. Exit 2 if not a git repo. (pre-push too: `jj commit` bypasses pre-commit.)
 - `true-up init` — scaffold a starter `.true-up.json`; exit 1 if one already exists (won't overwrite).
 - `true-up capabilities` — machine-readable contract (commands, flags, exit-code dictionary); always JSON; exit 0. Axiom 9: an agent reads the contract from the tool, not out-of-band.
 - `true-up --version | -v` — print the version; exit 0.
@@ -163,6 +165,13 @@ node bin/true-up --repo <target-repo> --policy
 `--repo` | `$TRUE_UP_REPO` | git-toplevel-of-CWD | CWD selects the target (in that order). There is no
 agentic prose-rewrite `/workflow` yet (roadmap) — **"run the workflow" today means `true-up run`**, the
 deterministic mechanical loop. Don't point users at a `/workflow` that doesn't exist.
+
+### Vendoring true-up (as a submodule)
+
+A consumer may vendor true-up as a git submodule and call `node vendor/true-up/bin/true-up`. If they
+clone without `--recursive`, `lib/engine.mjs` is absent; `bin/true-up` catches the `ERR_MODULE_NOT_FOUND`
+and prints `git submodule update --init --recursive` (exit 2) instead of a raw stack trace. For a
+deterministic gate, pin the submodule to a tag and (if using Tier 2) commit the vendored `bun.lock`.
 
 ## Roadmap
 

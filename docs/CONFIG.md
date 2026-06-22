@@ -61,6 +61,29 @@ the switch lives in tracked config (not a transient flag) so the graph stays rep
 producing a different, environment-dependent graph. Prefer span anchors (zero-dep) when you only need
 a handful of regions tracked; use `"symbols"` to blanket-track a whole code tree.
 
+## `strictSpans` — make malformed span anchors fatal (opt-in)
+
+By default a malformed span anchor (an unclosed `true-up:anchor`, a duplicate id) is **ignored** — a
+span nothing depends on is harmless, and a doc that *does* anchor to a missing span still fails loud
+(unresolved-anchor). That keeps a file free to *document* the token without self-tripping. Set
+`"strictSpans": true` to make any malformed span a **fatal** build/`--check` error (exit 1) instead —
+use it in a CI gate so a typo can't silently drop a span you meant to track.
+
+## Hashing model (what is normalized before hashing)
+
+Content hashes are `sha256` (16 hex chars). Only **JSON facts are normalized** — the array element is
+serialized with **sorted keys** so the hash is order-independent within an object. Everything else is
+hashed as **raw bytes**:
+
+- **JSON fact** — key-sorted JSON of the array element.
+- **span fact** — raw bytes strictly *between* the `true-up:anchor`/`true-up:end` markers (markers excluded).
+- **symbol fact** — raw bytes of the symbol's source span (tree-sitter).
+- **generated block** — raw bytes of the captured block body.
+- **file node** — raw file content.
+
+So don't over-claim cross-tool byte-identity: it holds for key-sorted JSON facts, but span/symbol/block
+hashes are raw-byte and depend on exact formatting (and, for symbols, the pinned grammar version).
+
 ## `zones` — visibility + intent + rules
 
 Each zone matches a path prefix (most-specific wins: exact > `**/suffix` > `dir/` > `""` catch-all)

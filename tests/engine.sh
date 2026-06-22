@@ -12,8 +12,8 @@ pass=0 ; fail=0
 ok(){ printf '  \033[32mPASS\033[0m %s\n' "$1"; pass=$((pass + 1)); }
 no(){ printf '  \033[31mFAIL\033[0m %s\n' "$1"; fail=$((fail + 1)); }
 
-FIX="$(mktemp -d)"; H=""; C=""; P=""; E=""; V=""; M=""; S=""; Y=""; Z=""; G=""
-trap 'rm -rf "$FIX" "$H" "$C" "$P" "$E" "$V" "$M" "$S" "$Y" "$Z" "$G"' EXIT
+FIX="$(mktemp -d)"; H=""; C=""; P=""; E=""; V=""; M=""; S=""; Y=""; Z=""; G=""; K=""
+trap 'rm -rf "$FIX" "$H" "$C" "$P" "$E" "$V" "$M" "$S" "$Y" "$Z" "$G" "$K"' EXIT
 
 # --- synthesize a target repo: steward data + a generated view + an anchored doc + a symlink ---
 git -C "$FIX" init -q
@@ -281,6 +281,44 @@ echo "$err" | grep -qE 'engine\.mjs|^lib/' && no "P1: self error-hint must not n
 # advertises). run is the mega-command agents script with | jq; both emitted human text. (verified)
 $TU --repo "$FIX" run --since HEAD --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(typeof d.green==="boolean"&&d.verify?0:1)' && ok "P0: run --json is valid structured JSON" || no "P0: run --json must be valid JSON"
 $TU --repo "$FIX" --version --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.version?0:1)' && ok "P0: --version --json is valid JSON" || no "P0: --version --json must be valid JSON"
+
+# T32 — adoption: `true-up hooks` wires a per-repo gate. --install writes executable pre-commit +
+# pre-push hooks running the leak/zone gate; idempotent; the installed hook actually BLOCKS a leak;
+# --ci prints a version-pinned snippet; --uninstall removes only the managed hooks.
+K="$(mktemp -d)"; git -C "$K" init -q
+printf '%s' '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":["no-machine-local-paths"]}]}' > "$K/.true-up.json"
+git -C "$K" add -A && git -C "$K" -c user.email=t@t -c user.name=t commit -qm init
+$TU --repo "$K" hooks --install >/dev/null 2>&1
+{ [ -x "$K/.git/hooks/pre-commit" ] && [ -x "$K/.git/hooks/pre-push" ]; } && ok "hooks: --install writes executable pre-commit + pre-push" || no "hooks --install must write executable hooks"
+{ grep -q 'true-up --policy' "$K/.git/hooks/pre-commit" && grep -q 'true-up --externalities' "$K/.git/hooks/pre-commit"; } && ok "hooks: the gate runs --policy + --externalities" || no "hook must run the gates"
+$TU --repo "$K" hooks --install >/dev/null 2>&1
+[ "$(grep -c 'managed-by: true-up-hooks' "$K/.git/hooks/pre-commit")" -eq 1 ] && ok "hooks: --install is idempotent (no stacking)" || no "hooks --install must be idempotent"
+mkdir -p "$K/shim"; printf '%s\n' '#!/bin/sh' "exec node \"$HERE/bin/true-up\" \"\$@\"" > "$K/shim/true-up"; chmod +x "$K/shim/true-up"
+printf '%s\n' 'see /home/somebody/secret/x' > "$K/leak.md"; git -C "$K" add leak.md
+if PATH="$K/shim:$PATH" git -C "$K" -c user.email=t@t -c user.name=t commit -qm leak >/dev/null 2>&1; then no "hooks: pre-commit must BLOCK a leak commit"; else ok "hooks: the installed pre-commit BLOCKS a commit that adds a machine-local-path leak"; fi
+git -C "$K" reset -q HEAD leak.md 2>/dev/null; rm -f "$K/leak.md"
+$TU --repo "$K" hooks --ci 2>/dev/null | grep -q 'npx true-up@' && ok "hooks: --ci prints a version-pinned CI snippet" || no "hooks --ci must print a CI snippet"
+$TU --repo "$K" hooks --uninstall >/dev/null 2>&1
+{ [ ! -e "$K/.git/hooks/pre-commit" ] && [ ! -e "$K/.git/hooks/pre-push" ]; } && ok "hooks: --uninstall removes the managed hooks" || no "hooks --uninstall must remove them"
+
+# T33 — gate: one CI stage = --check + --policy + --externalities; exit code is authoritative (a runner
+# keys on it, not stdout). Exits 0 when clean, nonzero when ANY sub-check fails; --json per-check status.
+$TU --repo "$FIX" >/dev/null 2>&1
+$TU --repo "$FIX" gate >/dev/null 2>&1; rc=$?; [ "$rc" -eq 0 ] && ok "gate: exits 0 on a clean repo (check+policy+externalities)" || no "gate must pass when clean"
+$TU --repo "$FIX" gate --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===true&&d.checks&&typeof d.checks.policy==="boolean"?0:1)' && ok "gate --json reports per-check status" || no "gate --json must be structured"
+printf '%s\n' 'leak /home/someone/y/z' > "$FIX/gateleak.md"
+$TU --repo "$FIX" gate >/dev/null 2>&1; rc=$?; [ "$rc" -ne 0 ] && ok "gate: EXITS NONZERO when a sub-check fails (a leak)" || no "gate must fail on any sub-check failure"
+rm -f "$FIX/gateleak.md"; $TU --repo "$FIX" >/dev/null 2>&1
+
+# T34 — strictSpans (consumer ask): "strictSpans": true makes a malformed span anchor FATAL so a CI
+# gate can't be fooled by a silently-dropped span; default stays lenient (no self-trip on doc'd tokens).
+printf '%s' '{"strictSpans":true,"zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}]}' > "$K/.true-up.json"
+printf '%s\n' '# true-up:anchor id=dup' 'a' '# true-up:end id=dup' '# true-up:anchor id=dup' 'b' '# true-up:end id=dup' > "$K/dup.py"
+out="$($TU --repo "$K" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'dup'; } && ok "strictSpans: a malformed span (duplicate id) FAILS the build (names it)" || no "strictSpans must fail on a malformed span"
+printf '%s' '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}]}' > "$K/.true-up.json"
+$TU --repo "$K" >/dev/null 2>&1; rc=$?; [ "$rc" -eq 0 ] && ok "default (no strictSpans): the same malformed span is lenient (no self-trip)" || no "default must stay lenient on malformed spans"
+rm -f "$K/dup.py"
 
 echo
 echo "engine tests: ${pass} passed, ${fail} failed"

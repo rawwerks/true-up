@@ -19,6 +19,16 @@ step() { printf '\n\033[1m[%s]\033[0m %s\n' "$1" "$2"; }
 fail() { printf '\033[31mCI FAILED:\033[0m %s\n' "$1" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
+# Self-bootstrap: the Tier-2 symbol tests need the OPTIONAL tree-sitter devDeps. On a fresh clone they're
+# absent — `npm test` would SKIP Tier-2 (honest, still green), but the release trust anchor must run the
+# FULL suite. Install once if missing (pinned versions, no surprise upgrades). Makes `npm run ci` on a
+# bare checkout self-sufficient — the documented "one command" needs no separate `npm install` step.
+if [ ! -d node_modules/web-tree-sitter ]; then
+  step "0/8" "bootstrap: install optional devDeps (tree-sitter) so Tier-2 tests run"
+  npm install >/dev/null 2>&1 || fail "devDeps bootstrap (npm install) failed — run 'npm install' manually, then re-run"
+fi
+
+# ---------------------------------------------------------------------------
 step "1/8" "fixture suite + self-gate + contract --check (npm test)"
 npm test
 
@@ -34,8 +44,14 @@ if ls "$HERE"/*.tgz >/dev/null 2>&1; then fail "a .tgz leaked into the repo root
 step "3/8" "install tarball into a clean sandbox (--omit=optional => lean core)"
 SANDBOX="$WORK/sandbox"
 mkdir -p "$SANDBOX"
-( cd "$SANDBOX" && npm init -y >/dev/null 2>&1 && npm install --omit=optional "$TGZ" >/dev/null 2>&1 ) \
-  || fail "clean-sandbox install of the tarball failed"
+# Capture the install output so a FAILURE shows the REAL npm error, not a generic message. (A muzzled
+# `>/dev/null 2>&1` here once hid a `node`-shim `mod.require` crash for an hour — never again: Axiom 14.)
+# --no-audit --no-fund: no registry round-trip (Axiom 12 determinism; avoids audit-latency stalls).
+if ! ( cd "$SANDBOX" && npm init -y && npm install --no-audit --no-fund --omit=optional "$TGZ" ) >"$WORK/sandbox-install.log" 2>&1; then
+  printf '\033[31m--- sandbox install output (the real error): ---\033[0m\n' >&2
+  cat "$WORK/sandbox-install.log" >&2
+  fail "clean-sandbox install of the tarball failed (real npm error shown above)"
+fi
 BIN="$SANDBOX/node_modules/.bin/true-up"
 [ -x "$BIN" ] || fail "installed bin not found/executable: $BIN"
 [ -f "$SANDBOX/node_modules/true-up/lib/engine.mjs" ] || fail "lib/engine.mjs missing from installed package"

@@ -22,6 +22,33 @@ stale, regenerating the mechanical, and worklisting the advisory, without an LLM
 **read-only with respect to your content**: its only writes are `.true-up/` (the graph), `.true-up.json`
 (`init`), and `.git/hooks/` (opt-in) — enforced by a snapshot test.
 
+### Hardened — safety & agent-ergonomics (pre-release pass)
+
+A pre-release pass (driven by a multi-lens audit; see `agent_ergonomics_audit/`) closed safety footguns
+and made the CLI dramatically easier for an AI agent to use correctly on the first try. Every fix ships
+with a regression test (`tests/engine.sh` T40–T72).
+
+- **Safety.** The test harness is git-config-isolated (`GIT_CONFIG_GLOBAL=/dev/null`, isolated `HOME`) so
+  `npm test`/`npm run ci` can never overwrite a developer's **global git hooks** (it could before, via a
+  global `core.hooksPath`). `hooks --install`/`--uninstall` now **refuse a hooks dir outside this repo**
+  without `--force`, never clobber an existing `.bak`, and `--uninstall` **restores** the backup. `out`
+  is confined inside the repo (no `..`/absolute escape, never a tracked content file). `run` confines
+  generators to the repo and surfaces their stderr. A malformed/ill-typed `.true-up.json` fails clean
+  (exit 2) instead of a stack trace that leaked an absolute path; a global `uncaughtException` guard is
+  the floor.
+- **No false-clean gates.** `--repo` is normalized to the git toplevel — a `--repo` pointing at a
+  **subdirectory** (or a non-git/nonexistent path) no longer scans an empty file set and reports clean;
+  it resolves to the repo root or exits 2. `--impact` on an unknown target exits 2 (not a false "0
+  dependents"). `gate <stray-arg>` exits 2 (was a silent PASS).
+- **Agent ergonomics.** New `status` read-only **orientation mega-command** (built/stale, what's stale,
+  policy/leak status, `nextCommands[]` — one call, always exit 0); new `robot-docs` in-tool agent
+  handbook; explicit `build` verb. Intent/synonym inference (`update`→`run`, `docs`→`robot-docs`,
+  `--jsno`→`--json`, cross-prefix typos). Every `--json` envelope carries a uniform `ok` + `_v`; error
+  paths emit `{ok:false,…}` on stdout. `capabilities` gained `quickstart`, `entrypoints`, `cmd_flags`,
+  and `error_codes`. Fresh `git clone && npm test` is green (Tier-2 symbol tests skip honestly without
+  the optional tree-sitter devDeps); `scripts/ci.sh` self-bootstraps devDeps and surfaces the real error
+  on a failed step.
+
 ### Added — engine & detection
 - Deterministic content-hashed dependency graph with causal, directed edges (generator marker,
   declared steward, fact anchor, symlink); per-fact granularity + early-cutoff; fail-loud on an

@@ -16,6 +16,9 @@ coherence. It is **not** dependent on GitHub Actions (that workflow only mirrors
 cd <true-up repo>
 git fetch --tags origin && git checkout v0.1.0   # publish from the tagged, validated commit
 git status --porcelain                            # MUST be empty (clean tree)
+npm install                                        # install devDeps (tree-sitter) so `npm run ci` runs the
+                                                   #   FULL Tier-2 suite. (npm run ci self-bootstraps this too,
+                                                   #   but doing it here makes the preflight explicit.)
 node -p "require('./package.json').private"        # MUST print: undefined  (the private gate is gone)
 npm whoami                                         # MUST print your npm user (publish rights). Else: npm login
 npm view true-up version                           # MUST be E404 or any version != 0.1.0. If it already

@@ -29,7 +29,7 @@
     },
     {
       "name": "--impact",
-      "summary": "who is made stale",
+      "summary": "who is made stale (unknown target → exit 2, not a false \"0 dependents\")",
       "json": true,
       "exits": [
         0,
@@ -65,10 +65,21 @@
     },
     {
       "name": "build",
-      "summary": "(re)write the graph JSON",
+      "summary": "(re)write the graph JSON (same as bare `true-up`)",
       "json": true,
       "exits": [
         0,
+        1,
+        2
+      ]
+    },
+    {
+      "name": "build",
+      "summary": "(re)write the graph JSON (alias of `build`)",
+      "json": true,
+      "exits": [
+        0,
+        1,
         2
       ]
     },
@@ -91,7 +102,7 @@
     },
     {
       "name": "hooks",
-      "summary": "wire/remove a per-repo pre-commit+pre-push gate, or print a CI snippet",
+      "summary": "wire/remove a per-repo pre-commit+pre-push gate (REFUSES a shared/out-of-repo hooks dir without --force; --uninstall restores any backup), or print a CI snippet",
       "json": true,
       "exits": [
         0,
@@ -100,11 +111,18 @@
     },
     {
       "name": "init",
-      "summary": "scaffold a starter .true-up.json",
+      "summary": "scaffold a starter .true-up.json (idempotent: no-op if one exists)",
       "json": false,
       "exits": [
-        0,
-        1
+        0
+      ]
+    },
+    {
+      "name": "robot-docs",
+      "summary": "paste-ready in-tool agent handbook (task→command recipes); writes nothing",
+      "json": true,
+      "exits": [
+        0
       ]
     },
     {
@@ -115,6 +133,14 @@
         0,
         1,
         2
+      ]
+    },
+    {
+      "name": "status",
+      "summary": "READ-ONLY orientation in ONE call: built/stale, what is stale, policy/leak status, + nextCommands[]. Always exit 0 (a probe, not a gate).",
+      "json": true,
+      "exits": [
+        0
       ]
     }
   ]

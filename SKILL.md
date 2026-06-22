@@ -44,7 +44,9 @@ shorthand in the examples is that same command.
 ## Run it
 
 ```sh
-true-up                          # build the graph (.true-up/depgraph.json)
+true-up status                   # START HERE: read-only orientation in ONE call (built? stale? + nextCommands[]); always exit 0
+true-up robot-docs               # paste-ready in-tool agent handbook (task → command)
+true-up build                    # build the graph (.true-up/depgraph.json)  (bare `true-up` is an alias)
 true-up --impact --since HEAD~1  # what a change made stale: mechanical (regen) vs advisory (review)
 true-up run --since HEAD~1       # the truing-up gate TODAY: detect → regenerate mechanical → advisory worklist → verify
 true-up gate                     # one CI/pre-commit stage: --check + --policy + --externalities; EXIT 1 on any failure (--json for per-check status)
@@ -54,7 +56,7 @@ true-up --check                  # stale-graph gate on the ON-DISK graph (exit 1
 true-up --check --committed      # drift gate on the COMMITTED/STAGED graph blob (exit 1 if stale; exit 1 if untracked)
 true-up --policy                 # zone/visibility lint (exit 1 on violations; --report = exit 0)
 true-up --externalities          # machine-local-path leak scan (exit 1 on leaks; --report = exit 0)
-true-up init                     # scaffold a starter .true-up.json (exit 1 if one already exists)
+true-up init                     # scaffold a starter .true-up.json (idempotent: no-op + exit 0 if one exists)
 true-up capabilities             # machine-readable contract (commands, flags, exit codes) — always JSON
 true-up <read-cmd> --json        # structured JSON on stdout for --policy/--externalities/--impact/--check/--verify-scope
 true-up --no-write               # fully stateless: compute in memory, persist NOTHING (not even .true-up/); build --json emits the graph

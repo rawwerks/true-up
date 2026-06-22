@@ -6,11 +6,26 @@
 # wired to its own directory) and pinning every load-bearing invariant + incident guard.
 # Fast (<60s). Run: bash tests/engine.sh   (or: npm test)
 set -uo pipefail
+
+# HERMETIC ISOLATION (load-bearing safety): this suite runs the REAL `true-up hooks --install`, which
+# resolves its target via `git rev-parse --git-path hooks` and therefore HONORS `core.hooksPath`. On a
+# machine with a GLOBAL core.hooksPath set, an unisolated run would overwrite the developer's real
+# global git hooks (pre-commit/pre-push) — and `hooks --uninstall` would leave them removed. That
+# incident is why this block exists: neutralize global/system git config (so hooksDir resolves to each
+# throwaway repo's own .git/hooks) and point HOME at a throwaway so nothing reads the dev's real config.
+# NEVER remove this — T32b asserts hooks land INSIDE the test repo, which only holds under isolation.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
+export HOME="$(mktemp -d)"
+
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 TU="node ${HERE}/bin/true-up"
-pass=0 ; fail=0
+pass=0 ; fail=0 ; skip=0
 ok(){ printf '  \033[32mPASS\033[0m %s\n' "$1"; pass=$((pass + 1)); }
 no(){ printf '  \033[31mFAIL\033[0m %s\n' "$1"; fail=$((fail + 1)); }
+sk(){ printf '  \033[33mSKIP\033[0m %s\n' "$1"; skip=$((skip + 1)); }
+# Optional Tier-2 deps (tree-sitter). Absent on a bare clone → Tier-2 tests SKIP (honest), never FAIL.
+# Dir check (NOT `require.resolve` — web-tree-sitter is ESM-only, so require.resolve throws even when present).
+HAS_TS=0; { [ -d "$HERE/node_modules/web-tree-sitter" ] && [ -d "$HERE/node_modules/tree-sitter-wasms" ]; } && HAS_TS=1
 
 FIX="$(mktemp -d)"; H=""; C=""; P=""; E=""; V=""; M=""; S=""; Y=""; Z=""; G=""; K=""; SD=""
 trap 'rm -rf "$FIX" "$H" "$C" "$P" "$E" "$V" "$M" "$S" "$Y" "$Z" "$G" "$K" "$SD"' EXIT
@@ -124,7 +139,10 @@ $TU --repo "$P" --impact registry.py 2>/dev/null | grep -q 'doc.md' && ok "--imp
 # T16 — init scaffolds a config and refuses to clobber one
 E="$(mktemp -d)"; git -C "$E" init -q
 $TU --repo "$E" init >/dev/null 2>&1; rc=$?; { [ "$rc" -eq 0 ] && [ -f "$E/.true-up.json" ]; } && ok "init scaffolds .true-up.json" || no "init must write .true-up.json"
-$TU --repo "$E" init >/dev/null 2>&1; rc=$?; [ "$rc" -ne 0 ] && ok "init refuses to overwrite an existing config" || no "init must not overwrite"
+# init is IDEMPOTENT: re-running never clobbers an existing config (safety) AND exits 0 (not 1 — exit 1
+# means a gate FAILED everywhere else; a benign "already scaffolded" must not collide with that).
+printf '{"_sentinel":"keep-me"}' > "$E/.true-up.json"
+$TU --repo "$E" init >/dev/null 2>&1; rc=$?; { [ "$rc" -eq 0 ] && grep -q 'keep-me' "$E/.true-up.json"; } && ok "init is idempotent (exit 0) and never clobbers an existing config" || no "init must be idempotent + no-clobber"
 
 # T17 — empty-graph NOTICE: distinguish "nothing changed" from "you declared nothing to track"
 out="$($TU --repo "$E" 2>&1)"
@@ -226,6 +244,10 @@ echo "$out" | grep -q 'INERT' && no "Tier1: a span-anchored repo must NOT be rep
 # T26 — Tier 2: tree-sitter SYMBOL extraction (config-driven "symbols": true) auto-lifts code
 # definitions to fact nodes with NO manual markers; a doc anchors to a symbol by name. (Opt-in,
 # optional dependency; the zero-dep core never loads tree-sitter.)
+# GUARD: Tier-2 needs the optional tree-sitter devDeps. On a bare clone they're absent — SKIP these
+# (honest), don't FAIL. `npm install` (or `bun install`) pulls them and these run for real. This makes
+# a fresh `git clone && npm test` GREEN instead of 4 cryptic failures that read like a broken tool.
+if [ "$HAS_TS" = 1 ]; then
 Y="$(mktemp -d)"; git -C "$Y" init -q
 printf '%s\n' 'import os' '' 'def parse_config(path):' '    return load(path)' '' 'class Cfg:' '    def get(self):' '        return 1' > "$Y/app.py"
 printf '%s\n' '# Guide' 'parse_config reads the config. <!-- fact: app.py#parse_config -->' > "$Y/guide.md"
@@ -255,6 +277,9 @@ printf '%s\n' '{ "symbols": true, "zones":[{"path":"","visibility":"public","aud
 git -C "$Z" add -A && git -C "$Z" -c user.email=t@t -c user.name=t commit -qm init
 $TU --repo "$Z" >/dev/null 2>&1
 $TU --repo "$Z" --impact 'api.cpp#parse_input' 2>/dev/null | grep -q 'docs.md' && ok "Tier2: C++ function symbol extracted via declarator + anchored (multi-language)" || no "Tier2: C++ symbol must resolve"
+else
+  sk "Tier2 symbol tests (T26-T28): tree-sitter optional devDeps not installed — run \`npm install\` to enable"
+fi
 
 # T29 — P0 (ergonomics): per-command flag validation. A typo'd flag must be REJECTED (exit 2 +
 # did-you-mean), never silently dropped. The worst case: --comitted downgrades the committed drift
@@ -379,6 +404,174 @@ $TU --repo "$FIX" >/dev/null 2>&1
 cmp -s "$FIX/.true-up/depgraph.json" "$g1" && ok "DETERMINISM: rebuild is byte-identical (honest --check)" || no "build must be byte-deterministic"
 rm -f "$g1"
 
+# ============================================================================
+# HARDENING REGRESSIONS (v0.1.0 usability + safety pass). Provenance: a 6-lens audit + dogfooding.
+# Each case guards one fix so the failure mode can never silently return.
+# ============================================================================
+
+# T40 — resolveRoot normalizes --repo to the git TOPLEVEL: a --repo at a SUBDIR must still see the
+# toplevel config and CATCH a toplevel leak. (GAP-H: subdir --repo saw an empty graph → false-clean.)
+RR="$(mktemp -d)"; git -C "$RR" init -q; mkdir -p "$RR/pkg/deep"
+printf '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"p","rules":["no-machine-local-paths"]}]}' > "$RR/.true-up.json"
+printf 'see /home/victim/secret/x\n' > "$RR/README.md"
+git -C "$RR" add -A && git -C "$RR" -c user.email=t@t -c user.name=t commit -qm i
+$TU --repo "$RR/pkg" --externalities >/dev/null 2>&1; rc=$?; [ "$rc" -eq 1 ] && ok "resolveRoot: --repo <subdir> normalizes to toplevel + catches a toplevel leak (no GAP-H false-clean)" || no "resolveRoot must normalize --repo subdir to toplevel (rc=$rc)"
+
+# T41 — a non-git --repo is a CLEAN exit 2, never a false-clean scan of an empty file set. (GAP-F.)
+NG="$(mktemp -d)"; printf 'leak /home/victim/secret/y\n' > "$NG/README.md"
+out="$($TU --repo "$NG" --externalities 2>&1)"; rc=$?; { [ "$rc" -eq 2 ] && ! echo "$out" | grep -q 'clean'; } && ok "resolveRoot: --repo <non-git dir> exits 2 (no false-clean)" || no "non-git --repo must exit 2 (rc=$rc)"
+
+# T42 — a nonexistent --repo exits 2 with ONE clean line, not raw git 'fatal:' noise. (ROOT-6/ROOT-8.)
+out="$($TU --repo /no/such/path/xyz --policy 2>&1)"; rc=$?; { [ "$rc" -eq 2 ] && ! echo "$out" | grep -q 'fatal:'; } && ok "resolveRoot: nonexistent --repo exits 2, no raw git fatal: noise" || no "nonexistent --repo must exit 2 cleanly (rc=$rc)"
+
+# T43 — --version is CLEAN outside any git repo (no eager-ROOT 'fatal:' leak to stderr). (ROOT-8.)
+ND="$(mktemp -d)"; out="$(cd "$ND" && $TU --version 2>&1)"; { echo "$out" | grep -qE '[0-9]+\.[0-9]+' && ! echo "$out" | grep -q 'fatal:'; } && ok "--version outside a git repo prints cleanly (no git fatal: leak)" || no "--version must be clean outside a repo"
+
+# T44 — hooks SAFETY: with core.hooksPath pointing OUTSIDE the repo, --install REFUSES (exit 2) and does
+# NOT write there; --force is the explicit opt-in. This is the footgun that clobbered a dev's GLOBAL
+# hooks during `npm test`. (Isolated fake-global config for this case only.)
+HKEXT="$(mktemp -d)"; FAKEG="$(mktemp)"; printf '[core]\n\thooksPath = %s\n' "$HKEXT" > "$FAKEG"
+HX="$(mktemp -d)"; GIT_CONFIG_GLOBAL="$FAKEG" git -C "$HX" init -q
+printf '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"p","rules":[]}]}' > "$HX/.true-up.json"
+GIT_CONFIG_GLOBAL="$FAKEG" git -C "$HX" add -A && GIT_CONFIG_GLOBAL="$FAKEG" git -C "$HX" -c user.email=t@t -c user.name=t commit -qm i
+GIT_CONFIG_GLOBAL="$FAKEG" $TU --repo "$HX" hooks --install >/dev/null 2>&1; rc=$?
+{ [ "$rc" -eq 2 ] && [ -z "$(ls -A "$HKEXT")" ]; } && ok "hooks: REFUSES install into an out-of-repo (global) hooks dir; external dir untouched" || no "hooks must refuse external hooksPath without --force (rc=$rc)"
+GIT_CONFIG_GLOBAL="$FAKEG" $TU --repo "$HX" hooks --install --force >/dev/null 2>&1; rc=$?
+{ [ "$rc" -eq 0 ] && [ -f "$HKEXT/pre-commit" ]; } && ok "hooks: --force writes into the external dir (explicit opt-in)" || no "hooks --force must allow external install (rc=$rc)"
+
+# T45 — hooks SAFETY: --uninstall RESTORES the foreign hook backed up on install (no silent loss).
+HR="$(mktemp -d)"; git -C "$HR" init -q
+printf '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"p","rules":[]}]}' > "$HR/.true-up.json"
+printf '#!/bin/sh\necho ORIGINAL-FOREIGN-HOOK\n' > "$HR/.git/hooks/pre-commit"; chmod +x "$HR/.git/hooks/pre-commit"
+$TU --repo "$HR" hooks --install >/dev/null 2>&1
+$TU --repo "$HR" hooks --uninstall >/dev/null 2>&1
+{ grep -q 'ORIGINAL-FOREIGN-HOOK' "$HR/.git/hooks/pre-commit" 2>/dev/null && [ ! -f "$HR/.git/hooks/pre-commit.bak" ]; } && ok "hooks: --uninstall restores the backed-up foreign hook (no silent loss) + clears .bak" || no "hooks --uninstall must restore the original hook"
+
+# T32b — hooks land INSIDE the test repo under isolation (proves the harness is hermetic; if this fails,
+# the suite is touching a shared/global hooks dir again — STOP and re-read the isolation block).
+HI="$(mktemp -d)"; git -C "$HI" init -q
+printf '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"p","rules":[]}]}' > "$HI/.true-up.json"
+$TU --repo "$HI" hooks --install >/dev/null 2>&1
+[ -f "$HI/.git/hooks/pre-commit" ] && ok "hermetic: hooks --install writes INSIDE the repo's .git (harness isolation holds)" || no "harness isolation broken — hooks landed outside the repo"
+
+# T46 — config FAIL-LOUD: a malformed .true-up.json is exit 2 (not swallowed → false-clean), with NO
+# stack trace (a trace would leak the engine's own absolute path — ironic for a leak detector). ROOT-11.
+BC="$(mktemp -d)"; git -C "$BC" init -q; printf '{ not json' > "$BC/.true-up.json"
+printf 'x\n' > "$BC/a.md"; git -C "$BC" add -A && git -C "$BC" -c user.email=t@t -c user.name=t commit -qm i
+out="$($TU --repo "$BC" --externalities 2>&1)"; rc=$?; { [ "$rc" -eq 2 ] && ! echo "$out" | grep -q 'engine.mjs'; } && ok "config: malformed .true-up.json exits 2 cleanly (no swallow, no stack trace)" || no "malformed config must fail loud + clean (rc=$rc)"
+
+# T47 — config SHAPE validation: an ill-typed key exits 2 cleanly (was an uncaught TypeError stack). GAP-G.
+WC="$(mktemp -d)"; git -C "$WC" init -q; printf '{"zones":"public"}' > "$WC/.true-up.json"
+git -C "$WC" add -A && git -C "$WC" -c user.email=t@t -c user.name=t commit -qm i
+out="$($TU --repo "$WC" --policy 2>&1)"; rc=$?; { [ "$rc" -eq 2 ] && ! echo "$out" | grep -q 'engine.mjs'; } && ok "config: ill-typed \"zones\" exits 2 cleanly (no TypeError stack trace)" || no "ill-typed config key must exit 2 cleanly (rc=$rc)"
+
+# T48 — write-invariant: `out` must not escape the repo (../) nor overwrite a tracked content file. ROOT-4.
+OE="$(mktemp -d)"; git -C "$OE" init -q; printf '{"out":"../escape.json"}' > "$OE/.true-up.json"
+printf 'x\n' > "$OE/a.md"; git -C "$OE" add -A && git -C "$OE" -c user.email=t@t -c user.name=t commit -qm i
+$TU --repo "$OE" >/dev/null 2>&1; rc=$?; { [ "$rc" -eq 2 ] && [ ! -f "$OE/../escape.json" ]; } && ok "out: a '../' path is REFUSED (exit 2); nothing written outside the repo" || no "out must not escape the repo (rc=$rc)"
+OC="$(mktemp -d)"; git -C "$OC" init -q; printf 'KEEP-ME README\n' > "$OC/README.md"; printf '{"out":"README.md"}' > "$OC/.true-up.json"
+git -C "$OC" add -A && git -C "$OC" -c user.email=t@t -c user.name=t commit -qm i
+$TU --repo "$OC" >/dev/null 2>&1; rc=$?; { [ "$rc" -eq 2 ] && grep -q 'KEEP-ME' "$OC/README.md"; } && ok "out: refuses to overwrite a tracked content file (README intact)" || no "out must not overwrite tracked content (rc=$rc)"
+
+# T49 — --impact on an UNKNOWN target is a usage ERROR (exit 2), not a silent "0 dependents". ROOT-7.
+IT="$(mktemp -d)"; git -C "$IT" init -q
+printf '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"p","rules":[]}]}' > "$IT/.true-up.json"
+printf 'a\n' > "$IT/a.md"; git -C "$IT" add -A && git -C "$IT" -c user.email=t@t -c user.name=t commit -qm i
+$TU --repo "$IT" >/dev/null 2>&1
+$TU --repo "$IT" --impact does/not/exist.md >/dev/null 2>&1; rc=$?; [ "$rc" -eq 2 ] && ok "--impact unknown target exits 2 (not a false '0 dependents')" || no "--impact unknown target must exit 2 (rc=$rc)"
+# capture-then-parse: the command exits 2, so a `| node` pipe would mask the parse under pipefail (the
+# documented pipefail trap). Capture stdout into a var (echo exits 0), then validate the JSON separately.
+js="$($TU --repo "$IT" --impact does/not/exist.md --json 2>/dev/null)"; printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===false?0:1)' && ok "--impact unknown target --json emits {ok:false} on stdout (not empty)" || no "--impact --json error must emit JSON"
+
+# T50 — --json error paths emit parseable JSON: a bad --since ref under --json is {ok:false}, not empty. ROOT-5.
+js="$($TU --repo "$IT" --impact --since deadbeef --json 2>/dev/null)"; printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===false?0:1)' && ok "--json: a bad --since ref emits {ok:false} on stdout" || no "--json bad-ref must be parseable JSON"
+
+# T51 — --check distinguishes 'not built' from 'stale' so an agent knows to BUILD vs debug a diff.
+NB="$(mktemp -d)"; git -C "$NB" init -q
+printf '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"p","rules":[]}]}' > "$NB/.true-up.json"
+printf 'a\n' > "$NB/a.md"; git -C "$NB" add -A && git -C "$NB" -c user.email=t@t -c user.name=t commit -qm i
+js="$($TU --repo "$NB" --check --json 2>/dev/null)"; printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.reason==="not built"&&d.built===false?0:1)' && ok "--check on a never-built repo reports reason:'not built' (not 'stale')" || no "--check must distinguish not-built from stale"
+
+# T52 — run surfaces a failing generator's stderr (was swallowed by stdio:'ignore'). GAP-E.
+RG="$(mktemp -d)"; git -C "$RG" init -q
+printf '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"p","rules":[]}],"seed":[]}' > "$RG/.true-up.json"
+printf 'process.stderr.write("BOOM-IN-GENERATOR\\n"); process.exit(1)\n' > "$RG/gen.mjs"
+printf '<!-- generated by gen.mjs from a.json -->\nview\n' > "$RG/view.md"
+printf '{"k":1}\n' > "$RG/a.json"
+git -C "$RG" add -A && git -C "$RG" -c user.email=t@t -c user.name=t commit -qm i
+$TU --repo "$RG" >/dev/null 2>&1
+printf '{"k":2}\n' > "$RG/a.json"
+out="$($TU --repo "$RG" run --since HEAD 2>&1)"; echo "$out" | grep -q 'BOOM-IN-GENERATOR' && ok "run: a failing generator's stderr is surfaced (not swallowed)" || no "run must surface generator stderr"
+
+# T53 — run refuses to EXECUTE a generator whose path escapes the repo (arbitrary out-of-tree code). P0#5.
+RX="$(mktemp -d)"; git -C "$RX" init -q
+printf '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"p","rules":[]}],"seed":[]}' > "$RX/.true-up.json"
+printf '<!-- generated by ../evil.mjs from a.json -->\nview\n' > "$RX/view.md"
+printf '{"k":1}\n' > "$RX/a.json"
+git -C "$RX" add -A && git -C "$RX" -c user.email=t@t -c user.name=t commit -qm i
+$TU --repo "$RX" >/dev/null 2>&1
+printf '{"k":2}\n' > "$RX/a.json"
+out="$($TU --repo "$RX" run --since HEAD 2>&1)"; echo "$out" | grep -q 'refusing to run generator OUTSIDE' && ok "run: refuses to execute a generator path that escapes the repo" || no "run must refuse out-of-repo generators"
+
+# ============================================================================
+# ERGONOMICS REGRESSIONS (v0.1.0 agent-ergonomics pass). Provenance: agent_ergonomics_audit/ (6-lens scoring).
+# ============================================================================
+
+# T64 — `status`: read-only ORIENTATION in one call, ALWAYS exit 0 (a probe, not a gate), writes nothing.
+ST="$(mktemp -d)"; git -C "$ST" init -q
+printf '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"p","rules":[]}]}' > "$ST/.true-up.json"
+printf 'a\n' > "$ST/a.md"; git -C "$ST" add -A && git -C "$ST" -c user.email=t@t -c user.name=t commit -qm i
+$TU --repo "$ST" status >/dev/null 2>&1; rc=$?; [ "$rc" -eq 0 ] && ok "status exits 0 even when not built (probe, not gate)" || no "status must exit 0 (rc=$rc)"
+[ ! -e "$ST/.true-up" ] && ok "status writes nothing (read-only probe)" || no "status mutated the repo"
+js="$($TU --repo "$ST" status --json 2>/dev/null)"; printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===true&&d.built===false&&Array.isArray(d.nextCommands)&&d.nextCommands.length>0&&d._v===1?0:1)' && ok "status --json carries ok/built/nextCommands/_v" || no "status --json shape"
+
+# T65 — `build` verb persists the graph (explicit, discoverable alias of bare true-up)
+$TU --repo "$ST" build >/dev/null 2>&1; rc=$?; { [ "$rc" -eq 0 ] && [ -f "$ST/.true-up/depgraph.json" ]; } && ok "build verb persists the graph" || no "build must persist (rc=$rc)"
+
+# T66 — `robot-docs`: in-tool handbook, works OUTSIDE a git repo (like --help), writes nothing.
+ND2="$(mktemp -d)"; out="$(cd "$ND2" && $TU robot-docs 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && echo "$out" | grep -q 'true-up status' && [ -z "$(ls -A "$ND2")" ]; } && ok "robot-docs prints a handbook outside a repo + writes nothing" || no "robot-docs must work anywhere + write nothing (rc=$rc)"
+
+# T67 — intent inference: semantic + cross-prefix + global-flag guesses redirect to the RIGHT command.
+# (capture-then-grep: these commands exit 2, so a direct `| grep` would mask the match under pipefail.)
+o="$($TU --repo "$FIX" update 2>&1)";       echo "$o" | grep -q 'did you mean: run'        && ok "intent: update → run (synonym, not lexical 'gate')" || no "update→run synonym"
+o="$($TU --repo "$FIX" docs 2>&1)";         echo "$o" | grep -q 'did you mean: robot-docs' && ok "intent: docs → robot-docs" || no "docs→robot-docs"
+o="$($TU --repo "$FIX" imapct x 2>&1)";     echo "$o" | grep -q -- '--impact'              && ok "intent: imapct → --impact (cross-prefix)" || no "imapct→--impact"
+o="$($TU --repo "$FIX" --jsno --check 2>&1)"; echo "$o" | grep -q -- '--json'              && ok "intent: --jsno → --json (global-flag typo)" || no "--jsno→--json"
+
+# T68 — discovery errors honor --json (unknown command/flag emit {ok:false} on stdout, not empty). ROOT-5.
+js="$($TU --repo "$FIX" --json zzzcmd 2>/dev/null)"; printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===false&&d.kind==="unknown-command"?0:1)' && ok "unknown-command --json → {ok:false,kind}" || no "unknown-command json"
+js="$($TU --repo "$FIX" --json --check --comitted 2>/dev/null)"; printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.kind==="unknown-flag"&&d.didYouMean==="--committed"?0:1)' && ok "unknown-flag --json → kind + didYouMean" || no "unknown-flag json"
+
+# T69 — Axiom 14: a stray positional on a no-positional command is exit 2 (gate zzz no longer PASSes).
+$TU --repo "$FIX" gate zzz >/dev/null 2>&1; [ $? -eq 2 ] && ok "gate <stray-arg> exits 2 (no silent PASS)" || no "gate must reject stray positionals"
+$TU --repo "$FIX" status extra >/dev/null 2>&1; [ $? -eq 2 ] && ok "status <stray-arg> exits 2" || no "status must reject stray positionals"
+
+# T70 — uniform envelope: every read-side command answers .ok (boolean) + ._v (one jq question works everywhere).
+UE="$(mktemp -d)"; git -C "$UE" init -q
+printf '{"facts":{"data.json":[["items","id"]]},"zones":[{"path":"","visibility":"public","audience":"world","intent":"p","rules":[]}],"seed":[{"from":"doc.md","to":"data.json#items.a"}]}' > "$UE/.true-up.json"
+printf '{"items":[{"id":"a","v":1}]}' > "$UE/data.json"; printf 'a <!-- fact: data.json#items.a -->\n' > "$UE/doc.md"
+git -C "$UE" add -A && git -C "$UE" -c user.email=t@t -c user.name=t commit -qm i
+$TU --repo "$UE" build >/dev/null 2>&1
+ok_v=1
+for spec in "--check" "--policy" "--externalities" "--verify-scope" "--impact data.json#items.a" "gate" "status"; do
+  js="$($TU --repo "$UE" $spec --json 2>/dev/null)"
+  printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(typeof d.ok==="boolean"&&d._v===1?0:1)' || ok_v=0
+done
+[ "$ok_v" = 1 ] && ok "every read-side command emits .ok (boolean) + ._v (uniform envelope)" || no "read-side envelope must carry .ok + ._v"
+
+# T71 — run --json REAL path carries advisoryWorklist (parity with --no-write; no second --impact call). ROOT-5.
+printf '{"items":[{"id":"a","v":2}]}' > "$UE/data.json"
+js="$($TU --repo "$UE" run --since HEAD --json 2>/dev/null)"; printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(Array.isArray(d.advisoryWorklist)&&d.advisoryWorklist[0]&&d.advisoryWorklist[0].doc==="doc.md"?0:1)' && ok "run --json (real path) emits advisoryWorklist (doc←fact)" || no "run advisoryWorklist asymmetry"
+git -C "$UE" checkout -q data.json 2>/dev/null
+
+# T72 — capabilities completeness (contract-drift guard): quickstart + entrypoints + cmd_flags present;
+# every CMD_FLAGS flag visible (so --force/--uninstall can't silently drop); --print gone; new cmds listed.
+caps="$($TU --repo "$FIX" capabilities 2>/dev/null)"
+printf '%s' "$caps" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const t=JSON.stringify(d);process.exit(d.quickstart&&d.entrypoints&&d.cmd_flags&&t.includes("--force")&&t.includes("--uninstall")&&!t.includes("--print")?0:1)' && ok "capabilities: quickstart/entrypoints/cmd_flags present; --force/--uninstall documented; --print gone" || no "capabilities contract completeness"
+printf '%s' "$caps" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const n=d.commands.map(c=>c.name.split(" ")[0]);process.exit(n.includes("status")&&n.includes("build")&&n.includes("robot-docs")?0:1)' && ok "capabilities lists status/build/robot-docs" || no "new commands missing from capabilities"
+
 echo
-echo "engine tests: ${pass} passed, ${fail} failed"
+echo "engine tests: ${pass} passed, ${fail} failed, ${skip} skipped"
+[ "$skip" = 0 ] || echo "  (skipped suites need optional devDeps — run \`npm install\` to enable them)"
 [ "$fail" = 0 ] || exit 1

@@ -90,13 +90,20 @@ The examples below use a bare `true-up` (assume the optional `npm link`, or subs
 2. Build and check:
 
 ```sh
-true-up                          # build the graph (path from `out`; default .true-up/depgraph.json)
+true-up status                   # READ-ONLY orientation in one call: built? stale? + nextCommands[] (always exit 0)
+true-up robot-docs               # paste-ready in-tool agent handbook (task → command)
+true-up build                    # build the graph (path from `out`; default .true-up/depgraph.json)
 true-up --check                  # exit 1 if the ON-DISK graph is stale (working-tree freshness)
 true-up --check --committed      # exit 1 if the COMMITTED/STAGED graph blob is stale (drift gate)
 true-up --policy                 # lint content vs declared zone intents; exit 1 on violations
 true-up --impact --since HEAD~1  # what a git change made stale (mechanical vs advisory)
 true-up run --since HEAD~1       # detect → regenerate mechanical → advisory worklist → verify
+true-up gate                     # one CI stage: --check + --policy + --externalities; exit 1 on any failure
 ```
+
+For agents: every read-side command takes `--json` and answers a uniform `ok` (pass/fail) + `_v`
+(contract version); `true-up status --json` is the one-call orientation, `true-up capabilities` is the
+machine contract. Errors name the exact command to run instead (e.g. `true-up update` → "did you mean: run").
 
 ## Commands
 

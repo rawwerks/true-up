@@ -4,10 +4,18 @@
   "workspaces": {
     "": {
       "name": "true-up",
-      "optionalDependencies": {
+      "devDependencies": {
         "tree-sitter-wasms": "0.1.13",
         "web-tree-sitter": "0.24.7",
       },
+      "peerDependencies": {
+        "tree-sitter-wasms": "0.1.13",
+        "web-tree-sitter": "0.24.7",
+      },
+      "optionalPeers": [
+        "tree-sitter-wasms",
+        "web-tree-sitter",
+      ],
     },
   },
   "packages": {

@@ -2,18 +2,54 @@
   "name": "true-up",
   "version": "0.1.0",
   "description": "Deterministic, git-native truing-up for any repo: a content-hashed dependency graph that detects what a change makes stale, regenerates the mechanical, and worklists the advisory.",
+  "keywords": [
+    "dependency-graph",
+    "deterministic",
+    "git-native",
+    "truing-up",
+    "staleness-detection",
+    "content-hashed",
+    "code-generation",
+    "cli",
+    "agent-native",
+    "true-up"
+  ],
+  "homepage": "https://github.com/rawwerks/true-up#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/rawwerks/true-up.git" },
+  "bugs": { "url": "https://github.com/rawwerks/true-up/issues" },
+  "license": "MIT",
   "type": "module",
   "bin": { "true-up": "bin/true-up" },
+  "files": [
+    "bin/",
+    "lib/",
+    "meta/contract.json",
+    "docs/CONFIG.md",
+    "examples/",
+    "install.sh",
+    "README.md",
+    "SKILL.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": { "node": ">=18" },
   "scripts": {
     "test": "bash tests/engine.sh",
     "posttest": "node bin/true-up >/dev/null 2>&1 && node bin/true-up gate && node meta/build-contract.mjs --check",
-    "contract": "node meta/build-contract.mjs"
+    "contract": "node meta/build-contract.mjs",
+    "ci": "bash scripts/ci.sh",
+    "prepublishOnly": "npm run ci"
   },
-  "engines": { "node": ">=18" },
-  "optionalDependencies": {
+  "peerDependencies": {
     "web-tree-sitter": "0.24.7",
     "tree-sitter-wasms": "0.1.13"
   },
-  "license": "MIT",
-  "private": true
+  "peerDependenciesMeta": {
+    "web-tree-sitter": { "optional": true },
+    "tree-sitter-wasms": { "optional": true }
+  },
+  "devDependencies": {
+    "web-tree-sitter": "0.24.7",
+    "tree-sitter-wasms": "0.1.13"
+  }
 }

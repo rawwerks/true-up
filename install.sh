@@ -203,7 +203,9 @@ if [ "$WITH_SYMBOLS" -eq 1 ]; then
     warn "--with-symbols needs npm or bun; neither found. Tier 2 (tree-sitter symbols) NOT enabled."
     SYMBOLS_STATUS="FAILED (no npm/bun)"
   else
-    if [ "$PM" = "bun" ]; then run_step "Installing tree-sitter deps (bun)" bash -c 'cd "$1" && bun install' _ "$TU_HOME"; else run_step "Installing tree-sitter deps (npm)" bash -c 'cd "$1" && npm install --omit=dev' _ "$TU_HOME"; fi
+    # tree-sitter is an OPTIONAL PEER dep (kept out of the default install so `npx true-up` stays lean),
+    # so it is not auto-installed — add the exact pins explicitly into the install dir.
+    if [ "$PM" = "bun" ]; then run_step "Installing tree-sitter deps (bun)" bash -c 'cd "$1" && bun add web-tree-sitter@0.24.7 tree-sitter-wasms@0.1.13' _ "$TU_HOME"; else run_step "Installing tree-sitter deps (npm)" bash -c 'cd "$1" && npm install web-tree-sitter@0.24.7 tree-sitter-wasms@0.1.13' _ "$TU_HOME"; fi
     if [ -d "$TU_HOME/node_modules/web-tree-sitter" ] && [ -d "$TU_HOME/node_modules/tree-sitter-wasms" ]; then
       ok "Tier 2 enabled (web-tree-sitter + tree-sitter-wasms)"; SYMBOLS_STATUS="enabled ($PM)"
     else

@@ -32,14 +32,29 @@ optional agent layer only ever *proposes* minimal prose edits.
 
 ## Install
 
-**One-line installer** — puts a `true-up` launcher on your PATH (requires Node ≥ 18; the core + Tier 1
-span anchors are zero-dependency, add `--with-symbols` for the optional tree-sitter layer):
+**npm / npx (primary, once published)** — zero-install and version-pinned, which is what a deterministic
+gate needs (pin the version so the gate is identical across machines/CI):
+
+```sh
+npx true-up@0.1.0 --repo <target-repo> gate     # zero-install, version-pinned gating
+npm install -g true-up                           # or install the launcher globally
+```
+
+The core + Tier 1 span anchors are **zero-dependency** (the tree-sitter stack is an optional peer dep, so
+`npx true-up` stays lean). For Tier 2 tree-sitter symbols, also install the grammars:
+
+```sh
+npm install web-tree-sitter@0.24.7 tree-sitter-wasms@0.1.13
+```
+
+**One-line installer** (no npm needed; puts a `true-up` launcher on your PATH; Node ≥ 18; add
+`--with-symbols` for the tree-sitter layer):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rawwerks/true-up/main/install.sh | bash
 ```
 
-While the repo is private/pre-release, install from a checkout instead (same script):
+Or install from a checkout (same script):
 
 ```sh
 git clone <this-repo> true-up && bash true-up/install.sh        # add --with-symbols for Tier 2

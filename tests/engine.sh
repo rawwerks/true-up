@@ -527,6 +527,22 @@ $TU --repo "$PD" build >/dev/null 2>&1
 js="$($TU --repo "$PD" --impact --since HEAD --proof --json 2>/dev/null)"
 printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const s=d.proof.summary;process.exit(s.sourceDependentEdges===2&&s.dependents===2&&s.uniqueDependents===1&&s.uniqueChangedInRange===1?0:1)' && ok "--impact --proof summary includes unique dependent counts" || no "--impact --proof summary must distinguish entries from unique dependents"
 
+# T37c2 — --proof's audit SIGNAL: a fact/source changed in the range but the dependent doc was NOT
+# edited → it STILL needs a prose rewrite. The other T37c cases cover changed-in-range (already edited)
+# and satisfied-by-live-alias; this pins the not-changed-in-range status + summary counters, the whole
+# reason --proof exists (a completed-pass auditor must see the unedited dependents, not an empty list).
+PN="$(mktemp -d)"; git -C "$PN" init -q
+printf '%s' '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}]}' > "$PN/.true-up.json"
+printf '%s\n' '# true-up:anchor id=api' 'def surface():' '    return "old"' '# true-up:end' > "$PN/tool.py"
+printf '%s\n' '# CLI' 'Surface docs. <!-- fact: tool.py#api -->' > "$PN/doc.md"
+git -C "$PN" add -A && git -C "$PN" -c user.email=t@t -c user.name=t commit -qm base
+$TU --repo "$PN" >/dev/null 2>&1
+# change ONLY the source/fact; leave the dependent doc UNTOUCHED (the unfinished-rewrite case)
+printf '%s\n' '# true-up:anchor id=api' 'def surface():' '    return "new"' '# true-up:end' > "$PN/tool.py"
+$TU --repo "$PN" >/dev/null 2>&1
+js="$($TU --repo "$PN" --impact --since HEAD --proof --json 2>/dev/null)"
+printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const src=(d.proof.sources||[]).find(s=>s.source==="fact:tool.py#api");const dep=src&&src.dependents.find(x=>x.node==="file:doc.md");process.exit(dep&&dep.status==="not-changed-in-range"&&d.proof.summary.notChangedInRange>=1&&d.proof.summary.uniqueNotChangedInRange>=1?0:1)' && ok "--impact --proof: source changed but dependent unedited -> not-changed-in-range (still needs rewrite)" || no "--impact --proof must flag an unedited dependent as not-changed-in-range"
+
 # T38 — --no-write: a fully-stateless audit that writes NOTHING — not even .true-up/. Query commands
 # fall back to an in-memory build instead of "build the graph first". (The owner's "truly no file edits".)
 rm -f "$FIX/.true-up/depgraph.json"; rmdir "$FIX/.true-up" 2>/dev/null
@@ -705,6 +721,34 @@ wait
 wait "$reader_pid" >/dev/null 2>&1 || true
 node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$WTBASE/.true-up/depgraph.json" && ok "parallel builds leave a valid JSON graph (atomic write)" || no "parallel builds must not leave a torn graph"
 [ ! -e "$reader_fail" ] && ok "concurrent reader never saw a torn graph during parallel builds" || no "concurrent reader saw torn graph during writes"
+
+# T65a2b — DETERMINISTIC atomic-write guard (the race above only tears ~2MB+, so it can't catch a
+# regression at real graph size). The write goes temp-file + rename: rename() swaps in a FRESH inode
+# every build, whereas an in-place writeFileSync(path,...) keeps the same inode (O_TRUNC reuses it). So
+# a changing inode across two builds proves the rename path; a revert to writeFileSync would pin it.
+# Plus: no `*.tmp` residue may survive under .true-up/ (a half-done atomic write would leak one).
+$TU --repo "$WTBASE" build >/dev/null 2>&1
+ino1="$(stat -c %i "$WTBASE/.true-up/depgraph.json" 2>/dev/null)"
+$TU --repo "$WTBASE" build >/dev/null 2>&1
+ino2="$(stat -c %i "$WTBASE/.true-up/depgraph.json" 2>/dev/null)"
+{ [ -n "$ino1" ] && [ "$ino1" != "$ino2" ]; } && ok "graph write is atomic rename (inode changes each build; not in-place writeFileSync)" || no "graph write must be rename-based (inode should change) so parallel readers never tear"
+ls "$WTBASE"/.true-up/*.tmp >/dev/null 2>&1 && no "atomic write must not leave .tmp residue under .true-up/" || ok "atomic write leaves no .tmp residue under .true-up/"
+
+# T65a2c — release tag-coherence guard (regression: the prepublishOnly HARD-FAIL must NOT be silently
+# downgradable to a warn). Provenance: v0.1.4 changed package.json prepublishOnly from `npm run ci` to
+# `bash scripts/ci.sh` because the nested `npm run ci` reset npm_lifecycle_event to 'ci', turning the
+# untagged-publish block into a warn — an untagged release could slip through. This exercises the EXACT
+# guard ci.sh calls, via `ci.sh --tag-coherence-check <ver>`, in a throwaway repo (hermetic).
+TCG="$(mktemp -d)"; git -C "$TCG" init -q
+printf 'x\n' > "$TCG/f"; git -C "$TCG" add -A && git -C "$TCG" -c user.email=t@t -c user.name=t commit -qm base
+out="$(cd "$TCG" && npm_lifecycle_event=prepublishOnly bash "$HERE/scripts/ci.sh" --tag-coherence-check 9.9.9 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'publish blocked'; } && ok "tag-coherence: untagged HEAD under prepublishOnly HARD-FAILS (publish blocked, no silent warn)" || no "untagged publish must be BLOCKED under prepublishOnly"
+out="$(cd "$TCG" && npm_lifecycle_event=ci bash "$HERE/scripts/ci.sh" --tag-coherence-check 9.9.9 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'not tagged'; } && ok "tag-coherence: untagged HEAD in local validation WARNs but passes (exit 0)" || no "local validation should warn, not block, on an untagged HEAD"
+# annotated tag needs a tagger identity — the suite runs under an isolated HOME with no global git
+# config (GIT_CONFIG_GLOBAL=/dev/null), so pass -c like the commits above or the tag silently won't form.
+git -C "$TCG" -c user.email=t@t -c user.name=t tag -a v9.9.9 -m v9.9.9
+( cd "$TCG" && npm_lifecycle_event=prepublishOnly bash "$HERE/scripts/ci.sh" --tag-coherence-check 9.9.9 >/dev/null 2>&1 ); [ "$?" -eq 0 ] && ok "tag-coherence: HEAD correctly tagged v<ver> passes under prepublishOnly" || no "a correctly tagged HEAD must pass the publish guard"
 
 # T65a3 — cycles are legal graph data but traversal must dedupe and terminate.
 CYC="$(mktemp -d)"; git -C "$CYC" init -q

@@ -105,6 +105,16 @@ Verify against `lib/engine.mjs` before changing any of this.
 Tests ARE the harness: every invariant and every past incident is a case in `tests/engine.sh`.
 `npm test` runs it (sub-minute, fixture-based). When you fix a bug, add the test that catches it.
 
+Make regression tests DETERMINISTIC, not best-effort — a guard that can't fail on the regression it
+names is worse than none. Two patterns proven here: (a) the atomic graph write (temp file + `renameSync`)
+is pinned by an **inode-change** assertion across two builds (rename swaps a fresh inode; an in-place
+`writeFileSync` revert would keep it, so the test fails loud) — the parallel-reader race only tears at
+multi-MB graphs and silently passed the revert. (b) The release **tag-coherence** guard is factored into
+`scripts/ci.sh`'s `check_tag_coherence` + a hermetic `ci.sh --tag-coherence-check <ver>` hook, so the
+suite exercises the EXACT guard `prepublishOnly` runs (untagged HEAD under `npm_lifecycle_event=prepublishOnly`
+must hard-fail "publish blocked"; a manual run only warns) — the incident it prevents is a nested
+`npm run ci` resetting `npm_lifecycle_event` and downgrading the block to a warn.
+
 ## Self-dogfood (true-up trues up ITSELF, marker-free)
 
 true-up is part of developing true-up — and it does so **without a single inline marker in its own

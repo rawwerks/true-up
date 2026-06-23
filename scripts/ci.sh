@@ -8,6 +8,30 @@
 #   Run: npm run ci   (or: bash scripts/ci.sh)
 set -euo pipefail
 
+# TAG COHERENCE (release safety): a publish must come from a HEAD tagged v$PKG_VER so the published
+# bytes map to a real release commit. HARD-FAIL under prepublishOnly (the real publish path); WARN on a
+# manual `npm run ci` so pre-tag dev validation still works. Factored into a function + a hermetic
+# self-test hook so tests/engine.sh can exercise the EXACT guard ci.sh runs — regression for the
+# "nested `npm run ci` reset npm_lifecycle_event to 'ci' and downgraded the HARD-FAIL to a silent warn"
+# incident (the reason v0.1.4 made prepublishOnly call `bash scripts/ci.sh` DIRECTLY). The hook runs
+# BEFORE the `cd "$HERE"` below so the self-test operates on the caller's throwaway repo, not this one.
+check_tag_coherence() {
+  local ver="$1"
+  git rev-parse --git-dir >/dev/null 2>&1 || return 0   # no-op outside a git checkout
+  if git tag --points-at HEAD 2>/dev/null | grep -qx "v$ver"; then
+    return 0
+  elif [ "${npm_lifecycle_event:-}" = "prepublishOnly" ]; then
+    printf 'publish blocked: HEAD is not tagged v%s — create it first (annotated, like the prior tags): git tag -a v%s -m v%s\n' "$ver" "$ver" "$ver" >&2
+    return 1
+  else
+    printf '\033[33m  ⚠ HEAD is not tagged v%s\033[0m — fine for local validation, but REQUIRED before `npm publish` (prepublishOnly will block).\n' "$ver" >&2
+    return 0
+  fi
+}
+if [ "${1:-}" = "--tag-coherence-check" ]; then
+  check_tag_coherence "${2:?usage: ci.sh --tag-coherence-check <version>}"; exit $?
+fi
+
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$HERE"
 
@@ -143,18 +167,10 @@ step "8/8" "version coherence — package.json == CHANGELOG top, and (on publish
 PKG_VER="$(node -p 'require("./package.json").version')"
 CHANGE_VER="$(grep -m1 -E '^## \[' CHANGELOG.md | sed -E 's/^## \[([^]]+)\].*/\1/')"
 [ "$PKG_VER" = "$CHANGE_VER" ] || fail "version mismatch: package.json=$PKG_VER CHANGELOG=$CHANGE_VER"
-# TAG COHERENCE: a publish must come from a HEAD tagged v$PKG_VER, so the published bytes map to a real
-# release commit (the prior gate checked only package.json==CHANGELOG and could not catch an untagged
-# publish — audit finding). HARD-FAIL under prepublishOnly (the actual publish path); WARN on a manual
-# `npm run ci` so pre-tag dev validation still works. (Run from a Git checkout; skip if no git.)
-if git rev-parse --git-dir >/dev/null 2>&1; then
-  if git tag --points-at HEAD 2>/dev/null | grep -qx "v$PKG_VER"; then
-    :
-  elif [ "${npm_lifecycle_event:-}" = "prepublishOnly" ]; then
-    fail "publish blocked: HEAD is not tagged v$PKG_VER — create it first (annotated, like the prior tags): git tag -a v$PKG_VER -m v$PKG_VER"
-  else
-    printf '\033[33m  ⚠ HEAD is not tagged v%s\033[0m — fine for local validation, but REQUIRED before `npm publish` (prepublishOnly will block).\n' "$PKG_VER" >&2
-  fi
-fi
+# TAG COHERENCE: defined at the top of this script (check_tag_coherence) so the guard is one source of
+# truth, also reachable via `ci.sh --tag-coherence-check <ver>` for the hermetic regression test. It
+# prints the WARN itself on the dev path and the block reason on the publish path; the `|| fail` adds
+# the consistent CI-FAILED footer + cleanup-trap exit. HARD-FAIL only under prepublishOnly.
+check_tag_coherence "$PKG_VER" || fail "release tag coherence: HEAD is not tagged v$PKG_VER — create it before publish (annotated): git tag -a v$PKG_VER -m v$PKG_VER"
 
 printf '\n\033[32m✓ Local CI passed\033[0m — fixtures + self-gate + contract + pack + clean-sandbox install + lean core + run-from-tarball + real gate + tarball hygiene + version coherence (v%s). Remaining release actions: final commit/tag, registry preflight, npm publish with credentials, then safe-push if authorized.\n' "$PKG_VER"

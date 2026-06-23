@@ -39,7 +39,7 @@
     "posttest": "node bin/true-up >/dev/null 2>&1 && node bin/true-up gate && node meta/build-contract.mjs --check",
     "contract": "node meta/build-contract.mjs",
     "ci": "bash scripts/ci.sh",
-    "prepublishOnly": "npm run ci"
+    "prepublishOnly": "bash scripts/ci.sh"
   },
   "peerDependencies": {
     "web-tree-sitter": "0.24.7",

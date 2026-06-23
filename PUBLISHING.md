@@ -27,7 +27,9 @@ npm run ci                                         # MUST exit 0 — the trust a
 ```
 
 > Do **not** trust `npm publish --dry-run` as the gate — it exits 0 even with `private:true` and skips the
-> private check. The real gate is `npm run ci` green + `private` removed (both already done here).
+> private check. The real gate is `npm run ci` green + `private` removed (both already done here), and
+> `prepublishOnly` invokes `bash scripts/ci.sh` directly so the tag-coherence check sees the actual npm
+> publish lifecycle.
 
 ## Publish (exact command)
 
@@ -37,7 +39,9 @@ npm publish
 
 - `true-up` is **unscoped**, so it is public by default — do **not** add `--access public` (that flag is
   only for scoped `@org/name` packages).
-- `prepublishOnly` re-runs `npm run ci` automatically and fail-closes if anything broke.
+- `prepublishOnly` re-runs `bash scripts/ci.sh` automatically and fail-closes if anything broke. It is
+  intentionally direct, not `npm run ci`, so `scripts/ci.sh` can distinguish an actual publish from a
+  manual local validation run and hard-fail if `HEAD` is not tagged `v0.1.4`.
 
 ## Post-publish verification (from a clean dir, e.g. `cd $(mktemp -d)`)
 
@@ -67,6 +71,6 @@ safe-push origin v0.1.4
 `private` removed · `files` allowlist ships runtime docs plus external-agent workflow templates, while
 excluding tests/CI/dev cruft · tree-sitter moved to **optional peer deps** so `npx true-up` stays lean
 (core is zero-dep; symbols users add `web-tree-sitter@0.24.7 tree-sitter-wasms@0.1.13`) ·
-`repository`/`homepage`/`bugs`/`keywords` set · `prepublishOnly` → `npm run ci` · `CHANGELOG.md`
+`repository`/`homepage`/`bugs`/`keywords` set · `prepublishOnly` → `bash scripts/ci.sh` · `CHANGELOG.md`
 release notes · local CI trust-anchor procedure.
 Registry latest was below `0.1.4` during the preparation pass; re-confirm in preflight.

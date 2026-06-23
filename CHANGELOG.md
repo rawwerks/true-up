@@ -46,6 +46,9 @@ and copied `status` next-commands are safer when the target repo is not the call
   summaries include unique dependent counts so duplicate fact edges do not inflate the audit headline.
 - Since-mode impact and `run` no longer report live symlink aliases as pending mechanical work; proof
   output marks them as satisfied by the alias instead of as missing edits.
+- The npm `prepublishOnly` hook now invokes the local CI script directly, so the publish lifecycle
+  reaches the tag-coherence check and an untagged release cannot be downgraded to a warning by a nested
+  package-script call.
 
 ## [0.1.3] - 2026-06-22
 

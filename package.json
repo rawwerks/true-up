@@ -1,6 +1,6 @@
 {
   "name": "true-up",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Deterministic, git-native truing-up for any repo: a content-hashed dependency graph that detects what a change makes stale, regenerates the mechanical, and worklists the advisory.",
   "keywords": [
     "dependency-graph",
@@ -26,6 +26,7 @@
     "meta/contract.json",
     "docs/CONFIG.md",
     "examples/",
+    "workflows/",
     "install.sh",
     "README.md",
     "SKILL.md",

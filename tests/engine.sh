@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# true-up:ignore-file true-up-markers
 # tests/engine.sh — fixture-based regression harness for the true-up engine.
 #
 # Tests ARE the harness. This builds a SYNTHETIC target repo from scratch and runs the
@@ -28,8 +29,8 @@ sk(){ printf '  \033[33mSKIP\033[0m %s\n' "$1"; skip=$((skip + 1)); }
 HAS_TS=0; { [ -d "$HERE/node_modules/web-tree-sitter" ] && [ -d "$HERE/node_modules/tree-sitter-wasms" ]; } && HAS_TS=1
 HAS_JJ=0; command -v jj >/dev/null 2>&1 && HAS_JJ=1
 
-FIX="$(mktemp -d)"; H=""; C=""; CG=""; P=""; E=""; V=""; M=""; S=""; Y=""; Z=""; G=""; K=""; SD=""; JJO=""; JJC=""
-trap 'rm -rf "$FIX" "$H" "$C" "$CG" "$P" "$E" "$V" "$M" "$S" "$Y" "$Z" "$G" "$K" "$SD" "$JJO" "$JJC"' EXIT
+FIX="$(mktemp -d)"; H=""; C=""; CG=""; P=""; E=""; V=""; M=""; S=""; Y=""; Z=""; G=""; K=""; SD=""; MG=""; JJO=""; JJC=""
+trap 'rm -rf "$FIX" "$H" "$C" "$CG" "$P" "$E" "$V" "$M" "$S" "$Y" "$Z" "$G" "$K" "$SD" "$MG" "$JJO" "$JJC"' EXIT
 
 # --- synthesize a target repo: steward data + a generated view + an anchored doc + a symlink ---
 git -C "$FIX" init -q
@@ -57,6 +58,13 @@ $TU --repo "$FIX" --check >/dev/null 2>&1 && ok "--check passes when in sync" ||
 # T2 — config-driven fact nodes + anchored edge resolve (repo-agnostic)
 $TU --repo "$FIX" --impact 'data.json#items.a' 2>/dev/null | grep -q 'doc.md' && ok "anchored fact-edge resolves (doc.md <- data.json#items.a)" || no "anchored fact-edge resolves"
 
+# T2b — `graph`: first-try graph inspection is read-only and emits full nodes/edges JSON.
+rm -rf "$FIX/.true-up"
+js="$($TU --repo "$FIX" graph --json 2>/dev/null)"; rc=$?
+{ [ "$rc" -eq 0 ] && [ ! -e "$FIX/.true-up" ] && printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===true&&d.wrote===false&&d.graph&&d.graph.nodes&&Array.isArray(d.graph.edges)&&d.graph.edges.some(e=>e.from==="file:doc.md")?0:1)'; } && ok "graph: read-only full graph dump (--json) writes nothing" || no "graph --json must dump graph and write nothing (rc=$rc)"
+$TU --repo "$FIX" graph 2>/dev/null | grep -q 'dependent -> source-of-truth' && ok "graph: human output renders the edge direction" || no "graph human output must explain edge direction"
+$TU --repo "$FIX" >/dev/null 2>&1
+
 # T3/T4 — structural edges from conventions
 grep -q 'generated-from' "$FIX/.true-up/depgraph.json" && ok "generated-from edge from self-describing marker" || no "generated-from edge"
 grep -q 'alias-of' "$FIX/.true-up/depgraph.json" && ok "symlink alias-of edge (link.md -> doc.md)" || no "symlink alias-of edge"
@@ -72,9 +80,14 @@ printf '%s\n' '# how-to' 'Anchor inline like `<!-- fact: example.json#x.y -->`, 
 $TU --repo "$FIX" >/dev/null 2>&1 && ok "anchor examples in code formatting do not fail-loud" || no "anchor examples in code must not fail-loud"
 rm -f "$FIX/howto.md"; $TU --repo "$FIX" >/dev/null 2>&1
 
+# T5c — source fixtures can quote true-up marker syntax without becoming live marker data.
+printf '%s\n' '# true-up:ignore-file true-up-markers' "printf '%s\n' '# true-up:anchor id=demo' '<!-- fact: missing.json#x -->'" > "$FIX/fixture.sh"
+$TU --repo "$FIX" --no-write --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const ns=Object.keys(d.graph.nodes);process.exit(d.ok===true&&ns.includes("file:fixture.sh")&&!ns.some(n=>n.startsWith("fact:fixture.sh#"))?0:1)' && ok "marker suppression: source fixture remains a node but quoted markers are inert" || no "true-up:ignore-file true-up-markers must suppress marker extraction only"
+rm -f "$FIX/fixture.sh"; $TU --repo "$FIX" >/dev/null 2>&1
+
 # T6 — externality detection (machine-local leak). NB: --externalities now GATES (exit 1 on a leak),
 # so assert on captured OUTPUT, not the pipeline exit (pipefail would otherwise mask the grep).
-printf '%s\n' 'path: /home/someuser/x' > "$FIX/leak.md"
+printf '%s\n' 'path: /home/someuser/x' > "$FIX/leak.md" # true-up:ignore-line no-machine-local-paths
 out="$($TU --repo "$FIX" --externalities 2>/dev/null)"; echo "$out" | grep -q '\[high\]' && ok "--externalities flags a /home leak" || no "--externalities flags a leak"
 rm -f "$FIX/leak.md"
 out="$($TU --repo "$FIX" --externalities 2>/dev/null)"; echo "$out" | grep -q ': 0 (0 high)' && ok "--externalities clean otherwise" || no "--externalities clean otherwise"
@@ -86,7 +99,7 @@ $TU --repo "$FIX" --policy 2>/dev/null | grep -q 'policy violations: 0' && ok "-
 $TU --repo "$FIX" run --since HEAD 2>/dev/null | grep -q 'GREEN' && ok "run --since reaches GREEN on a clean repo" || no "run reaches GREEN"
 
 # T9 — HIGH-1: --policy / --externalities are GATES (exit nonzero on violations), with --report opt-out
-printf '%s\n' 'see /home/bob/secret/x' > "$FIX/leak2.md"
+printf '%s\n' 'see /home/bob/secret/x' > "$FIX/leak2.md" # true-up:ignore-line no-machine-local-paths
 $TU --repo "$FIX" --policy >/dev/null 2>&1; rc=$?;        [ "$rc" -ne 0 ] && ok "HIGH-1: --policy EXITS NONZERO on a violation" || no "HIGH-1: --policy must gate"
 $TU --repo "$FIX" --externalities >/dev/null 2>&1; rc=$?; [ "$rc" -ne 0 ] && ok "HIGH-1: --externalities EXITS NONZERO on a leak" || no "HIGH-1: --externalities must gate"
 $TU --repo "$FIX" --policy --report >/dev/null 2>&1; rc=$?; [ "$rc" -eq 0 ] && ok "HIGH-1: --policy --report stays exit 0 (report-only)" || no "HIGH-1: --report must exit 0"
@@ -99,9 +112,12 @@ $TU --repo "$FIX" --externalities >/dev/null 2>&1; rc=$?; [ "$rc" -eq 0 ] && ok 
 rm -f "$FIX/privacy.md"; $TU --repo "$FIX" >/dev/null 2>&1
 
 # T11 — suppression directives mute a legit path-example in prose; scope is per-line
-printf '%s\n' '# notes' 'avoid /home/eve/x/ here <!-- true-up:ignore-line -->' '<!-- true-up:ignore-next no-machine-local-paths -->' 'and /home/eve/y/ here' > "$FIX/sup.md"
+printf '%s\n' '# notes' 'avoid /home/eve/x/ here <!-- true-up:ignore-line -->' '<!-- true-up:ignore-next no-machine-local-paths -->' 'and /home/eve/y/ here' > "$FIX/sup.md" # true-up:ignore-line no-machine-local-paths
 $TU --repo "$FIX" --externalities >/dev/null 2>&1; rc=$?; [ "$rc" -eq 0 ] && ok "suppression: ignore-line + ignore-next mute path findings" || no "suppression directives must mute findings"
-printf '%s\n' '# notes' 'and /home/eve/z/ here (no directive)' > "$FIX/sup.md"
+printf '%s\n' '# true-up:ignore-file no-machine-local-paths' 'leak /home/file-suppress/x' > "$FIX/sup-file.md" # true-up:ignore-line no-machine-local-paths
+$TU --repo "$FIX" --externalities >/dev/null 2>&1; rc=$?; [ "$rc" -ne 0 ] && ok "suppression: ignore-file is marker-only and cannot hide leak scanners" || no "ignore-file must not suppress no-machine-local-paths"
+rm -f "$FIX/sup-file.md"
+printf '%s\n' '# notes' 'and /home/eve/z/ here (no directive)' > "$FIX/sup.md" # true-up:ignore-line no-machine-local-paths
 $TU --repo "$FIX" --externalities >/dev/null 2>&1; rc=$?; [ "$rc" -ne 0 ] && ok "suppression is per-line (an unmarked leak still flags)" || no "unmarked leak must still flag"
 rm -f "$FIX/sup.md"; $TU --repo "$FIX" >/dev/null 2>&1
 
@@ -150,6 +166,18 @@ git -C "$P" add -A && git -C "$P" -c user.email=t@t -c user.name=t commit -qm in
 $TU --repo "$P" >/dev/null 2>&1
 grep -q 'registry.py' "$P/.true-up/depgraph.json" && ok "seed edge to a .py creates a node (edge not dropped)" || no "seed edge to code file must resolve"
 $TU --repo "$P" --impact registry.py 2>/dev/null | grep -q 'doc.md' && ok "--impact on a code source shows its dependent" || no "--impact .py must show dependent"
+
+# T15b — graph file universe parity: --verify-scope must see every path build can node. The builder
+# includes extensionless bin/* entrypoints; a stale KEEP_RE-only scope filter used to ignore them.
+mkdir -p "$P/bin"
+printf '%s\n' '#!/usr/bin/env bash' 'echo one' > "$P/bin/tool"
+printf '%s\n' '# Tool' 'wrapper docs' > "$P/tool.md"
+printf '%s\n' '{ "zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}], "seed":[ {"from":"tool.md","to":"bin/tool","kind":"derives-facts-from"} ] }' > "$P/.true-up.json"
+git -C "$P" add -A && git -C "$P" -c user.email=t@t -c user.name=t commit -qm bin-tool
+$TU --repo "$P" >/dev/null 2>&1
+printf '%s\n' '#!/usr/bin/env bash' 'echo two' > "$P/bin/tool"
+js="$($TU --repo "$P" --verify-scope --since HEAD --json 2>/dev/null)"; rc=$?
+{ [ "$rc" -eq 0 ] && printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.changed.includes("bin/tool")&&d.explained.includes("tool.md")?0:1)'; } && ok "--verify-scope uses the same file universe as build (extensionless bin/* is guarded)" || no "--verify-scope must not ignore graph-tracked extensionless bin/* files"
 
 # T16 — init scaffolds a config and refuses to clobber one
 E="$(mktemp -d)"; git -C "$E" init -q
@@ -334,7 +362,7 @@ $TU --repo "$K" hooks --install >/dev/null 2>&1
 $TU --repo "$K" hooks --install >/dev/null 2>&1
 [ "$(grep -c 'managed-by: true-up-hooks' "$K/.git/hooks/pre-commit")" -eq 1 ] && ok "hooks: --install is idempotent (no stacking)" || no "hooks --install must be idempotent"
 mkdir -p "$K/shim"; printf '%s\n' '#!/bin/sh' "exec node \"$HERE/bin/true-up\" \"\$@\"" > "$K/shim/true-up"; chmod +x "$K/shim/true-up"
-printf '%s\n' 'see /home/somebody/secret/x' > "$K/leak.md"; git -C "$K" add leak.md
+printf '%s\n' 'see /home/somebody/secret/x' > "$K/leak.md"; git -C "$K" add leak.md # true-up:ignore-line no-machine-local-paths
 if PATH="$K/shim:$PATH" git -C "$K" -c user.email=t@t -c user.name=t commit -qm leak >/dev/null 2>&1; then no "hooks: pre-commit must BLOCK a leak commit"; else ok "hooks: the installed pre-commit BLOCKS a commit that adds a machine-local-path leak"; fi
 git -C "$K" reset -q HEAD leak.md 2>/dev/null; rm -f "$K/leak.md"
 $TU --repo "$K" hooks --ci 2>/dev/null | grep -q 'npx true-up@' && ok "hooks: --ci prints a version-pinned CI snippet" || no "hooks --ci must print a CI snippet"
@@ -346,7 +374,7 @@ $TU --repo "$K" hooks --uninstall >/dev/null 2>&1
 $TU --repo "$FIX" >/dev/null 2>&1
 $TU --repo "$FIX" gate >/dev/null 2>&1; rc=$?; [ "$rc" -eq 0 ] && ok "gate: exits 0 on a clean repo (check+policy+externalities)" || no "gate must pass when clean"
 $TU --repo "$FIX" gate --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===true&&d.checks&&typeof d.checks.policy==="boolean"?0:1)' && ok "gate --json reports per-check status" || no "gate --json must be structured"
-printf '%s\n' 'leak /home/someone/y/z' > "$FIX/gateleak.md"
+printf '%s\n' 'leak /home/someone/y/z' > "$FIX/gateleak.md" # true-up:ignore-line no-machine-local-paths
 $TU --repo "$FIX" gate >/dev/null 2>&1; rc=$?; [ "$rc" -ne 0 ] && ok "gate: EXITS NONZERO when a sub-check fails (a leak)" || no "gate must fail on any sub-check failure"
 rm -f "$FIX/gateleak.md"; $TU --repo "$FIX" >/dev/null 2>&1
 
@@ -367,7 +395,7 @@ rm -f "$K/dup.py"
 # would BE a content-byte change and trip this. --no-write build is included (must also touch nothing).
 fp(){ ( cd "$1" && find . -type f -not -path './.git/*' -not -path './.true-up/*' | sort | while read -r f; do printf '%s:' "$f"; sha256sum "$f" | cut -d' ' -f1; done ); }
 RO_OK=1
-for cmd in "" "--no-write" "--check" "--impact data.json#items.a" "--policy --report" "--externalities --report" "--verify-scope --since HEAD" "gate" "capabilities" "--version" "--help"; do
+for cmd in "" "--no-write" "graph" "--check" "--impact data.json#items.a" "--policy --report" "--externalities --report" "--verify-scope --since HEAD" "gate" "capabilities" "--version" "--help"; do
   b="$(fp "$FIX")"; $TU --repo "$FIX" $cmd >/dev/null 2>&1; a="$(fp "$FIX")"
   [ "$b" = "$a" ] || { RO_OK=0; printf '    content CHANGED by: true-up %s\n' "${cmd:-(build)}"; }
 done
@@ -402,6 +430,40 @@ printf '%s' '{ "zones":[{"path":"","visibility":"public","audience":"world","int
 out="$($TU --repo "$SD" 2>&1)"; rc=$?
 { [ "$rc" -ne 0 ] && echo "$out" | grep -q 'gone.json'; } && ok "fail-loud: a seed to a nonexistent file errors (names it)" || no "bad seed file target must fail-loud"
 
+# T37b — marker-free MECHANICAL seed: generated artifacts can be declared in config without an inline
+# generated-by marker, and run executes the declared in-repo generator when the source changes.
+MG="$(mktemp -d)"; git -C "$MG" init -q
+printf '%s\n' '{"v":1}' > "$MG/data.json"
+printf '%s\n' 'stale' > "$MG/out.md"
+cat > "$MG/gen.mjs" <<'JS'
+import { readFileSync, writeFileSync } from 'node:fs'
+const data = JSON.parse(readFileSync('data.json', 'utf8'))
+writeFileSync('out.md', `v=${data.v}\n`)
+JS
+printf '%s' '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}],"seed":[{"from":"out.md","to":"data.json","kind":"generated-from"}]}' > "$MG/.true-up.json"
+git -C "$MG" add -A && git -C "$MG" -c user.email=t@t -c user.name=t commit -qm missing-via
+out="$($TU --repo "$MG" 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'via'; } && ok "marker-free generated seed: missing via fails loud" || no "generated-from seed without via must not pass green"
+printf '%s' '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}],"seed":[{"from":"out.md","to":"data.json","kind":"generated-from","via":"gen.mjs"}]}' > "$MG/.true-up.json"
+git -C "$MG" add -A && git -C "$MG" -c user.email=t@t -c user.name=t commit -qm init
+$TU --repo "$MG" >/dev/null 2>&1
+$TU --repo "$MG" --impact data.json --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.mechanical&&d.mechanical.some(x=>x.node==="file:out.md"&&x.via==="gen.mjs")?0:1)' && ok "marker-free generated seed: impact reports mechanical dependent + via" || no "generated-from seed must be mechanical and carry via"
+printf '%s\n' '{"v":2}' > "$MG/data.json"
+$TU --repo "$MG" run --since HEAD >/dev/null 2>&1
+grep -qx 'v=2' "$MG/out.md" && ok "marker-free generated seed: run executes the declared generator" || no "run must execute generated-from seed via"
+cat > "$MG/gen.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+v="$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync("data.json","utf8")).v))')"
+printf 'v=%s\n' "$v" > out.md
+SH
+printf '%s' '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}],"seed":[{"from":"out.md","to":"data.json","kind":"generated-from","via":"gen.sh"}]}' > "$MG/.true-up.json"
+$TU --repo "$MG" >/dev/null 2>&1
+git -C "$MG" add -A && git -C "$MG" -c user.email=t@t -c user.name=t commit -qm shell-via
+printf '%s\n' '{"v":3}' > "$MG/data.json"
+$TU --repo "$MG" run --since HEAD >/dev/null 2>&1
+grep -qx 'v=3' "$MG/out.md" && ok "marker-free generated seed: shell via is repo-general (not Node-only)" || no "run must execute shell via without node-wrapping it"
+
 # T38 — --no-write: a fully-stateless audit that writes NOTHING — not even .true-up/. Query commands
 # fall back to an in-memory build instead of "build the graph first". (The owner's "truly no file edits".)
 rm -f "$FIX/.true-up/depgraph.json"; rmdir "$FIX/.true-up" 2>/dev/null
@@ -428,12 +490,12 @@ rm -f "$g1"
 # toplevel config and CATCH a toplevel leak. (GAP-H: subdir --repo saw an empty graph → false-clean.)
 RR="$(mktemp -d)"; git -C "$RR" init -q; mkdir -p "$RR/pkg/deep"
 printf '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"p","rules":["no-machine-local-paths"]}]}' > "$RR/.true-up.json"
-printf 'see /home/victim/secret/x\n' > "$RR/README.md"
+printf 'see /home/victim/secret/x\n' > "$RR/README.md" # true-up:ignore-line no-machine-local-paths
 git -C "$RR" add -A && git -C "$RR" -c user.email=t@t -c user.name=t commit -qm i
 $TU --repo "$RR/pkg" --externalities >/dev/null 2>&1; rc=$?; [ "$rc" -eq 1 ] && ok "resolveRoot: --repo <subdir> normalizes to toplevel + catches a toplevel leak (no GAP-H false-clean)" || no "resolveRoot must normalize --repo subdir to toplevel (rc=$rc)"
 
 # T41 — a non-git --repo is a CLEAN exit 2, never a false-clean scan of an empty file set. (GAP-F.)
-NG="$(mktemp -d)"; printf 'leak /home/victim/secret/y\n' > "$NG/README.md"
+NG="$(mktemp -d)"; printf 'leak /home/victim/secret/y\n' > "$NG/README.md" # true-up:ignore-line no-machine-local-paths
 out="$($TU --repo "$NG" --externalities 2>&1)"; rc=$?; { [ "$rc" -eq 2 ] && ! echo "$out" | grep -q 'clean'; } && ok "resolveRoot: --repo <non-git dir> exits 2 (no false-clean)" || no "non-git --repo must exit 2 (rc=$rc)"
 
 # T42 — a nonexistent --repo exits 2 with ONE clean line, not raw git 'fatal:' noise. (ROOT-6/ROOT-8.)
@@ -479,6 +541,8 @@ out="$($TU --repo "$BC" --externalities 2>&1)"; rc=$?; { [ "$rc" -eq 2 ] && ! ec
 WC="$(mktemp -d)"; git -C "$WC" init -q; printf '{"zones":"public"}' > "$WC/.true-up.json"
 git -C "$WC" add -A && git -C "$WC" -c user.email=t@t -c user.name=t commit -qm i
 out="$($TU --repo "$WC" --policy 2>&1)"; rc=$?; { [ "$rc" -eq 2 ] && ! echo "$out" | grep -q 'engine.mjs'; } && ok "config: ill-typed \"zones\" exits 2 cleanly (no TypeError stack trace)" || no "ill-typed config key must exit 2 cleanly (rc=$rc)"
+printf '{"zones":[{"path":"","visibility":"public","audience":["agent"],"intent":"p","rules":[]}]}' > "$WC/.true-up.json"
+out="$($TU --repo "$WC" graph --json 2>/dev/null)"; rc=$?; printf '%s' "$out" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===false&&d.error==="invalid-config"?0:1)' && [ "$rc" -eq 2 ] && ok "config: zone audience is native but must be a string (arbitrary vocabulary, typed)" || no "zone audience must reject non-string values"
 
 # T48 — write-invariant: `out` must not escape the repo (../) nor overwrite a tracked content file. ROOT-4.
 OE="$(mktemp -d)"; git -C "$OE" init -q; printf '{"out":"../escape.json"}' > "$OE/.true-up.json"
@@ -545,7 +609,7 @@ $TU --repo "$ST" build >/dev/null 2>&1; rc=$?; { [ "$rc" -eq 0 ] && [ -f "$ST/.t
 
 # T66 — `robot-docs`: in-tool handbook, works OUTSIDE a git repo (like --help), writes nothing.
 ND2="$(mktemp -d)"; out="$(cd "$ND2" && $TU robot-docs 2>&1)"; rc=$?
-{ [ "$rc" -eq 0 ] && echo "$out" | grep -q 'true-up status' && [ -z "$(ls -A "$ND2")" ]; } && ok "robot-docs prints a handbook outside a repo + writes nothing" || no "robot-docs must work anywhere + write nothing (rc=$rc)"
+{ [ "$rc" -eq 0 ] && echo "$out" | grep -q 'true-up status' && echo "$out" | grep -q 'true-up graph --json' && echo "$out" | grep -Fq '"seed": [{' && echo "$out" | grep -q '"from": "doc.md"' && echo "$out" | grep -q '"generated-from"' && [ -z "$(ls -A "$ND2")" ]; } && ok "robot-docs prints a handbook outside a repo + graph/seed/generated examples + writes nothing" || no "robot-docs must work anywhere + include graph/seed/generated examples + write nothing (rc=$rc)"
 
 # T67 — intent inference: semantic + cross-prefix + global-flag guesses redirect to the RIGHT command.
 # (capture-then-grep: these commands exit 2, so a direct `| grep` would mask the match under pipefail.)
@@ -584,7 +648,8 @@ git -C "$UE" checkout -q data.json 2>/dev/null
 # every CMD_FLAGS flag visible (so --force/--uninstall can't silently drop); --print gone; new cmds listed.
 caps="$($TU --repo "$FIX" capabilities 2>/dev/null)"
 printf '%s' "$caps" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const t=JSON.stringify(d);process.exit(d.quickstart&&d.entrypoints&&d.cmd_flags&&t.includes("--force")&&t.includes("--uninstall")&&!t.includes("--print")?0:1)' && ok "capabilities: quickstart/entrypoints/cmd_flags present; --force/--uninstall documented; --print gone" || no "capabilities contract completeness"
-printf '%s' "$caps" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const n=d.commands.map(c=>c.name.split(" ")[0]);process.exit(n.includes("status")&&n.includes("build")&&n.includes("robot-docs")?0:1)' && ok "capabilities lists status/build/robot-docs" || no "new commands missing from capabilities"
+printf '%s' "$caps" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const n=d.commands.map(c=>c.name.split(" ")[0]);process.exit(n.includes("status")&&n.includes("graph")&&n.includes("build")&&n.includes("robot-docs")?0:1)' && ok "capabilities lists status/graph/build/robot-docs" || no "new commands missing from capabilities"
+printf '%s' "$caps" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const s=d.source_of_truth&&d.source_of_truth.declared_seed_edges||"";process.exit(s.includes("\"seed\"")&&s.includes("\"from\"")&&s.includes("\"to\"")&&s.includes("path#fact")&&s.includes("generated-from")&&s.includes("\"via\"")?0:1)' && ok "capabilities documents marker-free advisory + generated seed shapes" || no "capabilities must include concrete seed/generated guidance"
 
 # T73 — DOCS-IN-SYNC GATE (harness-engineering: true-up's OWN README once went stale — documenting a
 # tool whose whole job is keeping things in sync. NEVER AGAIN). The user/agent-facing docs (README.md,
@@ -605,6 +670,14 @@ done
 # bases). Drop a <!-- fact: --> or true-up:anchor into a true-up source file and this fails — use a seed.
 marker_edges=$($TU --repo "$HERE" --no-write --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const b=d.byDirectionBasis||{};process.stdout.write(String((b.anchored||0)+(b.generator||0)))')
 [ "$marker_edges" = "0" ] && ok "MARKER-FREE: true-up's own repo has 0 inline-marker edges (all declared seed / symlink)" || no "true-up's own repo grew an inline-marker edge (anchored+generator=$marker_edges) — declare it as a .true-up.json seed instead"
+self_guidance=$($TU --repo "$HERE" --no-write --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const edges=d.graph&&d.graph.edges||[];const hasGuide=(d.graph&&d.graph.nodes&&d.graph.nodes["fact:meta/contract.json#agent_guidance.declared-seed-edge"]);const hasConfig=edges.some(e=>e.from==="file:docs/CONFIG.md"&&e.to==="fact:meta/contract.json#agent_guidance.declared-seed-edge"&&e.directionBasis==="declared");const hasReadme=edges.some(e=>e.from==="file:README.md"&&e.to==="fact:meta/contract.json#agent_guidance.declared-seed-edge"&&e.directionBasis==="declared");process.stdout.write(hasGuide&&hasConfig&&hasReadme?"yes":"no")')
+[ "$self_guidance" = "yes" ] && ok "SELF-TRUE-UP: marker-free seed guidance is a contract fact linked to README + docs/CONFIG" || no "seed guidance must be represented in meta/contract and linked by .true-up.json"
+self_docs=$($TU --repo "$HERE" --no-write --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const g=d.graph||{};const n=g.nodes||{};const e=g.edges||[];const requiredNodes=["file:.gitignore","file:.true-up.json","file:README.md","file:SKILL.md","file:AGENTS.md","file:CLAUDE.md","file:docs/CONFIG.md","file:PUBLISHING.md","file:CHANGELOG.md","file:package.json","file:bun.lock","file:scripts/ci.sh","file:tests/engine.sh","file:.github/workflows/true-up.yml","file:bin/true-up","file:lib/engine.mjs","file:lib/symbols.mjs","file:meta/build-contract.mjs","file:meta/contract.json","file:install.sh","file:workflows/README.md","file:workflows/maintenance.workflow.js","file:workflows/audit.workflow.js"];const nodesOk=requiredNodes.every(x=>n[x]);const nodeOk=n["file:README.md"]?.audience==="external-users-and-agents"&&n["file:SKILL.md"]?.audience==="external-agents"&&n["file:AGENTS.md"]?.audience==="maintainer-agents"&&n["file:CLAUDE.md"]?.audience==="maintainer-agents"&&n["file:docs/CONFIG.md"]?.audience==="adopters-and-agents"&&n["file:PUBLISHING.md"]?.audience==="credentialed-release-agents"&&n["file:scripts/ci.sh"]?.audience==="release-agents-and-maintainers"&&n["file:.true-up.json"]?.audience==="maintainer-agents";const edge=(from,to,kind)=>e.some(x=>x.from===from&&x.to===to&&x.directionBasis==="declared"&&(!kind||x.kind===kind));const edgeOk=edge("file:README.md","file:docs/CONFIG.md")&&edge("file:README.md","file:.true-up.json")&&edge("file:SKILL.md","file:README.md")&&edge("file:SKILL.md","file:docs/CONFIG.md")&&edge("file:AGENTS.md","file:README.md")&&edge("file:AGENTS.md","file:SKILL.md")&&edge("file:AGENTS.md","file:docs/CONFIG.md")&&edge("file:AGENTS.md","file:tests/engine.sh")&&edge("file:AGENTS.md","file:lib/engine.mjs")&&edge("file:PUBLISHING.md","file:package.json")&&edge("file:PUBLISHING.md","file:bun.lock")&&edge("file:PUBLISHING.md","file:CHANGELOG.md")&&edge("file:PUBLISHING.md","file:scripts/ci.sh")&&edge("file:PUBLISHING.md","file:.github/workflows/true-up.yml")&&edge("file:.github/workflows/true-up.yml","file:scripts/ci.sh")&&edge("file:workflows/README.md","file:workflows/maintenance.workflow.js")&&edge("file:workflows/README.md","file:workflows/audit.workflow.js")&&edge("file:meta/contract.json","file:lib/engine.mjs","generated-from")&&edge("file:meta/contract.json","file:meta/build-contract.mjs","generated-from");process.stdout.write(nodesOk&&nodeOk&&edgeOk?"yes":"no")')
+[ "$self_docs" = "yes" ] && ok "SELF-TRUE-UP: first-class files, audiences, release/CI/workflow deps are graph data" || no "self graph must model first-class files, audiences, and release/CI/workflow deps"
+workflow_audiences=$($TU --repo "$HERE" --no-write --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const n=d.graph?.nodes||{};process.stdout.write(n["file:workflows/README.md"]?.audience==="external-agents"&&n["file:workflows/maintenance.workflow.js"]?.audience==="external-agents"&&n["file:workflows/audit.workflow.js"]?.audience==="external-agents"?"yes":"no")')
+[ "$workflow_audiences" = "yes" ] && ok "SELF-TRUE-UP: workflow templates are explicitly external-agent artifacts" || no "workflow templates must be audience-stamped as external-agent artifacts"
+readme_cmd_edges=$($TU --repo "$HERE" --no-write --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const nodes=d.graph?.nodes||{};const edges=d.graph?.edges||[];const facts=Object.keys(nodes).filter(k=>k.startsWith("fact:meta/contract.json#commands."));const missing=facts.filter(to=>!edges.some(e=>e.from==="file:README.md"&&e.to===to&&e.directionBasis==="declared"));process.stdout.write(missing.join("\\n"))')
+[ -z "$readme_cmd_edges" ] && ok "SELF-TRUE-UP: README has declared edges to every command fact" || no "README missing command-fact seed edges:$readme_cmd_edges"
 
 # ── DOC-TRUTH gates (a doc-fact-check workflow found drift the command-coverage gate was blind to) ──
 
@@ -677,7 +750,7 @@ JSON
   { [ "$rc" -eq 1 ] && printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===false&&d.mode==="committed"?0:1)'; } && ok "jj-only: --check --committed fails on stale graph in @" || no "jj-only committed gate must fail on stale graph (rc=$rc)"
   $TU --repo "$JJO" build >/dev/null 2>&1
   $TU --repo "$JJO" --check --committed >/dev/null 2>&1 && ok "jj-only: --check --committed passes once @ includes rebuilt graph" || no "jj-only committed gate must pass after rebuild"
-  printf 'path: /home/someuser/secret\n' > "$JJO/leak.md"
+  printf 'path: /home/someuser/secret\n' > "$JJO/leak.md" # true-up:ignore-line no-machine-local-paths
   out="$($TU --repo "$JJO" --externalities 2>/dev/null)"; echo "$out" | grep -q '\[high\]' && ok "jj-only: externalities scans jj files" || no "jj-only externalities must scan files"
   $TU --repo "$JJO" hooks --install >/dev/null 2>&1; [ "$?" -eq 2 ] && ok "jj-only: hooks --install fails loud without git hooks" || no "jj-only hooks install must fail loud"
 

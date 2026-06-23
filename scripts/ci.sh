@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# true-up:ignore-file true-up-markers
 # scripts/ci.sh — true-up's TRUSTED LOCAL CI / release gate.
 # Tests ARE the harness: one command runs the whole publish-readiness chain and exits
 # nonzero on ANY failure. prepublishOnly invokes this, so a broken build cannot publish.
@@ -25,7 +26,7 @@ fail() { printf '\033[31mCI FAILED:\033[0m %s\n' "$1" >&2; exit 1; }
 # bare checkout self-sufficient — the documented "one command" needs no separate `npm install` step.
 if [ ! -d node_modules/web-tree-sitter ]; then
   step "0/8" "bootstrap: install optional devDeps (tree-sitter) so Tier-2 tests run"
-  npm install >/dev/null 2>&1 || fail "devDeps bootstrap (npm install) failed — run 'npm install' manually, then re-run"
+  npm install --no-package-lock --no-audit --no-fund >/dev/null 2>&1 || fail "devDeps bootstrap (npm install --no-package-lock) failed — run 'npm install --no-package-lock' manually, then re-run"
 fi
 
 # ---------------------------------------------------------------------------
@@ -104,12 +105,15 @@ fi
 # ---------------------------------------------------------------------------
 step "7/8" "tarball hygiene — no dev cruft, all runtime files present"
 LISTING="$(tar tzf "$TGZ")"
-if printf '%s\n' "$LISTING" | grep -Eq '(^|/)(tests/|\.github/|workflows/|AGENTS\.md|bun\.lock|\.true-up\.json|meta/build-contract\.mjs)'; then
-  printf '%s\n' "$LISTING" | grep -E '(tests/|\.github/|workflows/|AGENTS\.md|bun\.lock|\.true-up\.json|build-contract)' >&2
+if printf '%s\n' "$LISTING" | grep -Eq '(^|/)(tests/|\.github/|AGENTS\.md|bun\.lock|\.true-up\.json|meta/build-contract\.mjs)'; then
+  printf '%s\n' "$LISTING" | grep -E '(tests/|\.github/|AGENTS\.md|bun\.lock|\.true-up\.json|build-contract)' >&2
   fail "tarball ships dev cruft (add/fix the \"files\" allowlist)"
 fi
 for f in package/bin/true-up package/lib/engine.mjs package/lib/symbols.mjs package/README.md package/LICENSE package/CHANGELOG.md; do
   printf '%s\n' "$LISTING" | grep -qx "$f" || fail "tarball is missing required runtime file: $f"
+done
+for f in package/workflows/README.md package/workflows/maintenance.workflow.js package/workflows/audit.workflow.js; do
+  printf '%s\n' "$LISTING" | grep -qx "$f" || fail "tarball is missing required external-agent workflow file: $f"
 done
 
 # ---------------------------------------------------------------------------
@@ -118,4 +122,4 @@ PKG_VER="$(node -p 'require("./package.json").version')"
 CHANGE_VER="$(grep -m1 -E '^## \[' CHANGELOG.md | sed -E 's/^## \[([^]]+)\].*/\1/')"
 [ "$PKG_VER" = "$CHANGE_VER" ] || fail "version mismatch: package.json=$PKG_VER CHANGELOG=$CHANGE_VER"
 
-printf '\n\033[32m✓ Local CI passed\033[0m — fixtures + self-gate + contract + pack + clean-sandbox install + lean core + run-from-tarball + real gate + tarball hygiene + version coherence (v%s). Remaining action: npm publish (creds only).\n' "$PKG_VER"
+printf '\n\033[32m✓ Local CI passed\033[0m — fixtures + self-gate + contract + pack + clean-sandbox install + lean core + run-from-tarball + real gate + tarball hygiene + version coherence (v%s). Remaining release actions: final commit/tag, registry preflight, npm publish with credentials, then safe-push if authorized.\n' "$PKG_VER"

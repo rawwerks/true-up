@@ -8,6 +8,33 @@ surface in [`meta/contract.json`](meta/contract.json) (`true-up capabilities`, `
 Scope: from the initial commit through the first tagged release. Links point at the canonical
 commit pages on GitHub (`rawwerks/true-up`). No GitHub *Releases* existed before `v0.1.0`.
 
+## [0.1.3] - 2026-06-22
+
+A self-dogfood patch for release and agent guidance. No breaking changes.
+
+### Added
+- **`true-up graph` is now the first-class "look at the data" command.** It prints a read-only
+  human or JSON dump of nodes, audiences/zones, edges, propagation, and generator `via` fields.
+- **Agent guidance is now a first-class contract steward.** `meta/build-contract.mjs` derives an
+  `agent_guidance` fact from `true-up capabilities`, and the self-graph links README/docs guidance to
+  that fact marker-free. `robot-docs` and `capabilities` now show the concrete `seed` edge shape agents
+  should use for dependencies tree-sitter cannot infer.
+- **Marker-free mechanical generated edges.** A `seed` can now use `kind: "generated-from"` plus
+  `via` so generated artifacts like `meta/contract.json` can be modeled without inline markers.
+- **Marker-example suppression for fixtures.** `true-up:ignore-file true-up-markers` lets test fixtures
+  quote true-up marker syntax while the file remains a normal graph node.
+- **Release handoff is in the self-graph.** `PUBLISHING.md` now has its own release-agent audience and
+  declared dependencies on package metadata, changelog, local CI, and the GitHub Actions mirror.
+- **External-agent workflows ship with the package.** The npm allowlist now includes `workflows/` so
+  `SKILL.md` links to the maintenance/audit templates are valid from the published tarball.
+
+### Changed
+- **true-up is a stronger case study for itself.** `.true-up.json` now models document audiences and
+  prose/code/release/CI dependencies for README, SKILL, AGENTS, CONFIG, PUBLISHING, workflows, local CI,
+  and the generated contract; the harness asserts those edges and the README command-fact coverage.
+- The default graph file universe now includes tracked ignore/lock artifacts such as `.gitignore` and
+  `bun.lock`, so release and cache-policy surfaces can participate in the graph.
+
 ## [0.1.2] - 2026-06-22
 
 A compatibility patch for real-world committed-graph and Jujutsu workspaces. No breaking changes.
@@ -28,6 +55,7 @@ A compatibility patch for real-world committed-graph and Jujutsu workspaces. No 
 
 | Version | Date | Summary |
 |---|---|---|
+| [0.1.3](#013--2026-06-22) | 2026-06-22 | Agent guidance and npm publishing handoff are modeled in true-up's own dependency graph. |
 | [0.1.2](#012--2026-06-22) | 2026-06-22 | jj-only workspace support plus the committed-graph output fix for repos that intentionally track `.true-up/depgraph.json`. |
 | [0.1.1](#011--2026-06-22) | 2026-06-22 | Docs rewritten for users (README no longer leaked internal/maintainer framing); a doc-fact-check found and fixed real drift (a README config example that failed to build, an `init` exit-code claim, an installer `--help` source leak); six deterministic doc/marker-drift gates added so it can't recur. |
 | [0.1.0](#010--2026-06-22) | 2026-06-22 | First tagged release: the deterministic, git-native truing-up engine — language-agnostic, read-only-by-design, marker-free, self-dogfooding. |
@@ -41,7 +69,8 @@ README. This release fixes the rot and makes the whole class of doc/marker drift
 
 ### Changed — docs rewritten for users
 - **README.md** is now user-facing: removed internal jargon (the old span-vs-symbol layer naming,
-  self-dogfood, invariants, steward) — that lives in [AGENTS.md](AGENTS.md) — and restructured to
+  self-dogfood, invariants, steward) — that lives in
+  [AGENTS.md](https://github.com/rawwerks/true-up/blob/main/AGENTS.md) — and restructured to
   problem → solution → two-phase
   install (get the tool, then `init` in a repo) → commands → config → FAQ. The config example now
   actually builds (the prior one hard-failed with a SEED ERROR).
@@ -60,7 +89,8 @@ README. This release fixes the rot and makes the whole class of doc/marker drift
   claim), **no-jargon** (no Tier/Axiom in user docs or installer `--help`), **no-source-leak**
   (installer `--help` prints no code), and **marker-free** (true-up's own build has zero inline-marker
   edges — the "no markup in our files" invariant was claimed in AGENTS.md but never asserted; now it is).
-  Provenance: two multi-agent audits in [agent_ergonomics_audit/](agent_ergonomics_audit/audit/HANDOFF.md).
+  Provenance: two multi-agent audits in
+  [agent_ergonomics_audit/](https://github.com/rawwerks/true-up/blob/main/agent_ergonomics_audit/audit/HANDOFF.md).
 
 ## [0.1.0] - 2026-06-22
 
@@ -72,9 +102,10 @@ stale, regenerating the mechanical, and worklisting the advisory, without an LLM
 
 ### Hardened — safety & agent-ergonomics (pre-release pass)
 
-A pre-release pass (driven by a multi-lens audit; see `agent_ergonomics_audit/`) closed safety footguns
-and made the CLI dramatically easier for an AI agent to use correctly on the first try. Every fix ships
-with a regression test (`tests/engine.sh` T40–T72).
+A pre-release pass (driven by a multi-lens audit; see
+[`agent_ergonomics_audit/`](https://github.com/rawwerks/true-up/tree/main/agent_ergonomics_audit)) closed
+safety footguns and made the CLI dramatically easier for an AI agent to use correctly on the first try.
+Every fix ships with a regression test (`tests/engine.sh` T40–T72).
 
 - **Safety.** The test harness is git-config-isolated (`GIT_CONFIG_GLOBAL=/dev/null`, isolated `HOME`) so
   `npm test`/`npm run ci` can never overwrite a developer's **global git hooks** (it could before, via a
@@ -151,6 +182,7 @@ with a regression test (`tests/engine.sh` T40–T72).
 - **Determinism:** the graph is byte-stable (sorted, no timestamps); pin the tool version for a gate
   shared across machines.
 
+[0.1.3]: https://github.com/rawwerks/true-up/releases/tag/v0.1.3
 [0.1.2]: https://github.com/rawwerks/true-up/releases/tag/v0.1.2
 [0.1.1]: https://github.com/rawwerks/true-up/releases/tag/v0.1.1
 [0.1.0]: https://github.com/rawwerks/true-up/releases/tag/v0.1.0

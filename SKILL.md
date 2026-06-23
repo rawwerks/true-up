@@ -22,7 +22,9 @@ fact-level granularity) and computes — without guessing — what a change make
    at the repo root (idempotent — re-running on an existing config is a no-op and still exits 0; it
    never overwrites). Then edit it to declare your
    **stewards** (source-of-truth data files to decompose into facts), **zones** (per-path
-   visibility/intent + rules), and declared **seed** edges. See the tool's `docs/CONFIG.md`.
+   visibility/intent + rules), and declared **seed** edges. Use `seed` when the dependency should
+   live in config instead of an inline marker: `{ "from": "doc.md", "to": "src/app.py#parse_config",
+   "kind": "derives-facts-from" }`. See the tool's `docs/CONFIG.md`.
 2. Add fact-anchors where a doc cites a specific fact: `<!-- fact: <path>#<key> -->`. The `<key>` is a
    JSON `<arrayProp>.<key>`, a span-anchor `id`, or a tree-sitter symbol name (see "Code as a
    source-of-truth").
@@ -46,6 +48,7 @@ shorthand in the examples is that same command.
 
 ```sh
 true-up status                   # START HERE: read-only orientation in ONE call (built? stale? + nextCommands[]); always exit 0
+true-up graph --json             # inspect the actual nodes, audiences, edges, propagation, and generator via fields
 true-up robot-docs               # paste-ready in-tool agent handbook (task → command)
 true-up build                    # build the graph (.true-up/depgraph.json)  (bare `true-up` is an alias)
 true-up --impact --since HEAD~1  # Git base; in jj-only repos use --since @-
@@ -158,6 +161,15 @@ and a `seed` to a nonexistent file/fact is a hard error (fail-loud). A code file
 file-granularity **seed** endpoint without any of these. If you declare no
 facts / anchors / symbols / seed, the build prints a NOTICE: the drift layer is inert (it passes
 `--check` trivially) until you give it something to track.
+
+## Case study: this repo
+
+true-up uses true-up on itself. In this repo, `.true-up.json` declares document audiences through
+`zones` and document/code/release dependencies through marker-free `seed` edges: `README.md` is the
+external overview, `SKILL.md` is for external agents, `AGENTS.md` is for maintainer agents,
+`PUBLISHING.md` is for credentialed release agents, and `docs/CONFIG.md` is the config reference.
+Query it directly with `true-up graph --json`, `true-up --impact docs/CONFIG.md`, or
+`true-up --impact meta/contract.json#agent_guidance.declared-seed-edge`.
 
 ## Invariant to respect
 

@@ -91,6 +91,7 @@ A global install gives you the command; this step is what actually wires it into
 cd your-repo
 true-up init       # scaffold .true-up.json — declare your sources of truth + their dependents
 true-up build      # build the dependency graph (.true-up/depgraph.json)
+true-up graph      # inspect nodes, audiences, and edges without writing
 true-up status     # see what's tracked and whether anything is stale
 true-up gate       # the check to run in CI / pre-commit
 ```
@@ -138,6 +139,7 @@ uniform `ok` boolean.
 | command | what it does | exit |
 |---|---|---|
 | `true-up status` | read-only orientation in one call: built? stale? what changed + what to run next | 0 (always — it's a probe) |
+| `true-up graph [--json]` | read-only graph dump: nodes, audiences/zones, edges, propagation, generator `via` | 0 (1 on graph errors; 2 on usage/config errors) |
 | `true-up build` (or bare `true-up`) | build the dependency graph (`out`, default `.true-up/depgraph.json`) | 0 (1 on an unresolved anchor; 2 on ill-typed config) |
 | `true-up --check [--committed]` | is the graph stale? `--committed` checks the VCS-stored graph (Git: staged/HEAD; jj-only: `@`) | 1 if stale |
 | `true-up --impact <path\|path#fact>… [--since <ref>]` | what becomes stale if that path/fact changes | 0 (2 on unknown target / bad ref) |
@@ -202,8 +204,9 @@ definitions (Python / Rust / Go / JS / TS / C / C++) as facts named after the sy
 markers.
 
 Either way, a doc **cites** the fact to create the dependency — inline (`<!-- fact: src/app.py#parse_config -->`)
-or in config via a `seed` entry (no comments in your files). The edge is always explicit; true-up
-never guesses a dependency from co-occurrence.
+or in config via a marker-free `seed` entry:
+`{ "from": "docs/api.md", "to": "src/app.py#parse_config", "kind": "derives-facts-from" }`.
+The edge is always explicit; true-up never guesses a dependency from co-occurrence.
 
 ## Use it in CI / pre-commit
 
@@ -224,6 +227,33 @@ true-up is built to be driven by coding agents:
 - **`true-up capabilities`** — the full machine contract (commands, flags, exit codes, `quickstart`).
 - Every read-side command: `--json` with a uniform `ok` + `_v`; errors emit `{ok:false, …}` and a
   `did you mean` suggestion (e.g. `true-up update` → "did you mean: run").
+
+## How true-up uses itself
+
+This repo is the reference case study: true-up trues up true-up without inline dependency markers.
+The engine's command and agent-guidance surface is generated into [meta/contract.json](meta/contract.json)
+by [meta/build-contract.mjs](https://github.com/rawwerks/true-up/blob/main/meta/build-contract.mjs).
+Then [.true-up.json](https://github.com/rawwerks/true-up/blob/main/.true-up.json) declares
+which documents derive from those facts and from one another:
+
+- `README.md` is the external user/agent overview and derives from every command fact, the
+  agent-guidance fact, the config reference, installer, package manifest, and workflow overview.
+- `SKILL.md` is the loadable external-agent skill and derives from `README.md`, `docs/CONFIG.md`,
+  `.true-up.json`, the workflow overview, and the generated contract.
+- `AGENTS.md` is for maintainer agents and derives from the external docs plus the engine, harness,
+  release, workflow, and CI surfaces it summarizes.
+- `PUBLISHING.md` is for credentialed release agents and derives from package metadata, lockfile,
+  changelog, installer, local CI, and the GitHub Actions mirror.
+- `docs/CONFIG.md` is the adopter/config reference and derives from the engine behavior,
+  configuration examples, `.true-up.json`, `.gitignore`, and the agent-guidance contract fact it teaches.
+
+Useful probes:
+
+```sh
+true-up --impact meta/contract.json#agent_guidance.declared-seed-edge
+true-up --impact docs/CONFIG.md
+true-up graph --json
+```
 
 ## How it fits together
 
@@ -300,5 +330,5 @@ MIT © 2026 Raymond Weitekamp. See [LICENSE](LICENSE).
 
 ---
 
-*Maintainer / architecture notes live in [AGENTS.md](AGENTS.md). Running true-up inside your own
-agent? See [SKILL.md](SKILL.md).*
+*Maintainer / architecture notes live in [AGENTS.md](https://github.com/rawwerks/true-up/blob/main/AGENTS.md).
+Running true-up inside your own agent? See [SKILL.md](SKILL.md).*

@@ -91,6 +91,14 @@ hashes are raw-byte and depend on exact formatting (and, for symbols, the pinned
 
 Each zone matches a path prefix (most-specific wins: exact > `**/suffix` > `dir/` > `""` catch-all)
 and declares `visibility` (public < private < secret), `audience`, an `intent` label, and `rules`.
+`audience` is native graph metadata but repo-defined: any string is valid, so use values that make
+sense for your project (`external-users`, `external-agents`, `maintainer-agents`, `release-agents`,
+etc.). true-up does not impose an audience enum; it validates the value is a string and carries it
+onto matching `file:` nodes.
+Use this for document audiences too, not just security boundaries: this repo declares `README.md` as
+the external user/agent overview, `SKILL.md` as the external-agent skill, `AGENTS.md` as maintainer
+agent notes, `PUBLISHING.md` as the release-agent handoff, and `docs/CONFIG.md` as the adopter/config
+reference. Those values are stamped onto graph file nodes and show up in `true-up graph --json`.
 Mechanical rules enforced by `--policy`:
 
 - `no-machine-local-paths` — no `/home/<user>`, `/Users/<user>`, or non-canonical `~/` paths
@@ -124,11 +132,16 @@ against the original (un-stripped) line text:
 ```
 <!-- true-up:ignore-line [rule] -->   suppresses findings on THIS line
 <!-- true-up:ignore-next [rule] -->   suppresses findings on the NEXT line
+# true-up:ignore-file true-up-markers suppresses marker/span extraction for this file only
 ```
 
-The optional `[rule]` (e.g. `no-machine-local-paths` or `no-private-operational-leak`) scopes the
-suppression to that one rule; omit it to suppress all rules on that line. Prefer code formatting
+The optional line-level `[rule]` (e.g. `no-machine-local-paths` or `no-private-operational-leak`) scopes
+the suppression to that one rule; omit it to suppress all rules on that line. Prefer code formatting
 over a directive where you can — reserve the directive for prose that genuinely needs the bare path.
+For test fixtures or docs generators that quote true-up marker syntax in source files, use
+`true-up:ignore-file true-up-markers`; the file remains a normal graph node, but marker/span extraction
+does not treat the quoted fixture strings as live dependencies. File-level suppression is intentionally
+restricted to marker extraction; it cannot turn off leak/policy scanners for a whole public file.
 
 ## `seed` — declared edges (the marker-free path)
 
@@ -142,12 +155,25 @@ Directed edges declared in config, so your content stays pristine — **no inlin
   (`true-up:anchor`), or a tree-sitter `Symbol` name (`"symbols": true`). Examples:
   `{ "from": "README.md", "to": "data/verdicts.json#frameworks.ax" }` ·
   `{ "from": "guide.md", "to": "src/app.py#parse_config" }`.
+- **Mechanical generated (marker-free)** — use `kind: "generated-from"` plus required `via` to model a generated
+  artifact without a content marker: `{ "from": "meta/contract.json", "to": "lib/engine.mjs",
+  "kind": "generated-from", "via": "meta/build-contract.mjs" }`. `true-up run` executes each distinct
+  tracked in-repo `via` for stale mechanical dependents; `run --no-write` only reports what would run.
+  JS generators run with Node, shell/Python/Ruby/Perl generators run by extension, and extensionless
+  shebang tools execute directly.
 
 A `seed` whose `from`/`to` does not resolve (untracked file, or a fact that doesn't exist) is a **hard
 error** — fail-loud parity with inline anchors, never a silently-dropped edge. Inline `<!-- fact: -->`
 anchors remain available for authors who prefer a co-located, greppable citation that travels with the
 prose; both forms resolve to the identical edge. Neither survives a source rename automatically — the
 sidecar's edge is just an auditable one-line `.true-up.json` diff a reviewer signs off.
+
+`seed` is also how to model prose dependencies no parser can infer. In this repo, `README.md` derives
+its config summary from `docs/CONFIG.md`, `SKILL.md` derives from both, `AGENTS.md` derives from the
+user/agent docs and maintainer surfaces it summarizes, and `PUBLISHING.md` derives from package,
+changelog, local-CI, and workflow surfaces. That is deliberate graph data: `true-up --impact
+docs/CONFIG.md` names the downstream documents that need review, and `true-up graph --json` shows the
+audience and dependency map.
 
 ## `out` — graph path + the commit-optional model
 

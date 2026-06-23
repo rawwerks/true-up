@@ -19,9 +19,10 @@ tests/engine.sh    fixture-based regression harness (synthesizes a target repo, 
 docs/CONFIG.md     the .true-up.json schema + the marker/anchor conventions
 examples/          an example .true-up.json
 meta/build-contract.mjs  generates meta/contract.json from `true-up capabilities`; --check gates engine→contract drift
-meta/contract.json the command-surface STEWARD (generated, committed) — true-up trues itself against it
+meta/contract.json the command + agent-guidance STEWARD (generated, committed) — true-up trues itself against it
 .github/workflows/true-up.yml  CI: npm test (fixtures + self-gate) + meta/build-contract.mjs --check
-package.json       optionalDependencies: web-tree-sitter + tree-sitter-wasms (EXACT-pinned, Tier 2 only); posttest = self-gate
+workflows/         external-agent maintenance/audit workflow templates; shipped in npm because SKILL.md links them
+package.json       npm allowlist + optional tree-sitter peer/dev deps (EXACT-pinned, Tier 2 only); posttest = self-gate
 .true-up.json      true-up's own config — it trues up ITSELF, MARKER-FREE (steward + sidecar seed; see "Self-dogfood")
 ```
 
@@ -31,6 +32,7 @@ The CLI is a set of gates, so exit codes are load-bearing — wire them straight
 Verify against `lib/engine.mjs` before changing any of this.
 
 - `true-up status [--since <ref>]` — **read-only ORIENTATION mega-command** (Axiom 10): one call returns built/stale, graph stats, what's stale since `<ref>` (mechanical + advisory worklist), policy/leak status, and copy-paste `nextCommands[]`. **Always exits 0** (a probe, not a gate — `gate` is the authoritative CI exit) and writes nothing. The canonical first command an agent reaches for; `triage`/`doctor`/`overview`/`update`/`docs` etc. redirect here or to the right verb via an intent/synonym map (not just lexical did-you-mean).
+- `true-up graph [--json]` — **read-only graph inspection**: prints the actual nodes, audiences/zones, edges, propagation, and generator `via` fields. This is the command for "show me the graph" / "look at the data"; writes nothing.
 - `true-up build` — explicit verb for the bare build below (discoverable alias).
 - `true-up` (no args) — (re)build + write the graph JSON to `out` (default `.true-up/depgraph.json`). Exit 1 on an unresolved anchor (fail-loud); otherwise exit 0. Prints a NOTICE when no facts/edges are declared (the drift layer is INERT).
 - `true-up --check` — working-tree freshness: exit 1 if the ON-DISK graph differs from a fresh rebuild.
@@ -107,15 +109,37 @@ Tests ARE the harness: every invariant and every past incident is a case in `tes
 true-up is part of developing true-up — and it does so **without a single inline marker in its own
 files** (every edge is a sidecar `seed`). The wiring:
 
-- **Source of truth → steward.** The command surface lives in the engine (`HELP` + `capabilities`).
-  `meta/build-contract.mjs` generates `meta/contract.json` (a committed steward, one fact per command)
-  from `true-up capabilities`. `meta/build-contract.mjs --check` is the **engine→contract drift gate**
-  (fails if the steward is stale vs the engine) — run in `npm test` posttest AND CI.
+- **Source of truth → steward.** The command surface and in-tool agent guidance live in the engine
+  (`HELP`, `ROBOT_DOCS`, and `capabilities`). `meta/build-contract.mjs` generates `meta/contract.json`
+  (a committed steward, one fact per command plus explicit `agent_guidance` facts) from
+  `true-up capabilities`. `meta/build-contract.mjs --check` is the **engine→contract drift gate**
+  (fails if the steward is stale vs the engine) — run in `npm test` posttest AND CI. The generated
+  steward is also modeled as a marker-free **mechanical** seed edge (`kind: generated-from`, `via:
+  meta/build-contract.mjs`) from `bin/true-up`, `lib/engine.mjs`, and the generator itself.
 - **Docs → contract (marker-free).** `.true-up.json` `seed` declares the dependency: `README.md`
-  derives-facts-from each `meta/contract.json#commands.<name>` (fact-granular — change one command's
-  contract and `true-up --impact meta/contract.json#commands.<name>` flags exactly README); `AGENTS.md`
-  and `SKILL.md` derive-facts-from the whole `meta/contract.json` (file-granular). No `<!-- fact: -->`
-  anchors anywhere — the build proves it (`byDirectionBasis` is all `declared`).
+  derives-facts-from each `meta/contract.json#commands.<name>` it documents, plus
+  `meta/contract.json#agent_guidance.declared-seed-edge`; `docs/CONFIG.md` also derives from that
+  agent-guidance fact. `AGENTS.md` and `SKILL.md` derive-facts-from the whole `meta/contract.json`
+  (file-granular). No `<!-- fact: -->` anchors anywhere — the build proves it (`byDirectionBasis` is
+  all `declared` except symlink aliases).
+- **Audience is data, not folklore.** `.true-up.json` `zones` assigns document intent and audience:
+  `README.md` is for external users + agents, `SKILL.md` is for external agents, `AGENTS.md` is for
+  maintainer agents, `docs/CONFIG.md` is the adopter/config reference, `PUBLISHING.md` is for
+  credentialed release agents, `workflows/` is for external agents using the agentic layer,
+  `scripts/ci.sh` is the local release trust anchor, `tests/engine.sh` is the regression harness,
+  `meta/contract.json` is for agents + CI, and `agent_ergonomics_audit/` is the maintainer audit trail.
+  The graph stamps those values onto file nodes so `true-up graph --json`
+  is the query surface for "who is this artifact for?"
+- **Documents depend on documents.** The seed graph also models semantic prose dependencies that no
+  parser can infer: `README.md` derives its config summary from `docs/CONFIG.md`; `SKILL.md` derives
+  from `README.md`, `docs/CONFIG.md`, `.true-up.json`, and the workflow overview; `AGENTS.md` derives
+  from the user/agent docs plus the engine, harness, release, workflow, and CI surfaces it summarizes;
+  `PUBLISHING.md` derives from package metadata, lockfile, changelog, installer, local CI, and the
+  GitHub Actions mirror. This is intentional "more than AST" truth — if a source document changes,
+  `true-up --impact <doc>` should name the dependent artifact audiences that need review.
+- **Probe the case study directly.** `true-up --impact meta/contract.json#agent_guidance.declared-seed-edge`
+  should name the docs that teach marker-free `seed` edges, and `true-up graph --json` should show the
+  full audience/dependency map with zero `anchored`/`generator` self-edges. Tests T74/T75 pin this.
 - **The tool gates itself.** `npm test` posttest runs `true-up gate` (`--check` + `--policy` +
   `--externalities`) on true-up's own repo; CI (`.github/workflows/true-up.yml`) runs `npm test` +
   `meta/build-contract.mjs --check`. The read-only invariant (Load-bearing invariant 8) means this is

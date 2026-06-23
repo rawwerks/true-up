@@ -11,8 +11,8 @@
 #   --with-symbols     also install the OPTIONAL tree-sitter deps (enables "symbols": true)
 #   --from <dir>       install from a local true-up checkout instead of fetching
 #   --ref <tag>        pin a version/tag when fetching (default: latest)
-#   --prefix <dir>     where to symlink the `true-up` launcher  (default: ~/.local/bin)
-#   --home <dir>       where to place the tool files            (default: ~/.local/share/true-up)
+#   --prefix <dir>     where to symlink the `true-up` launcher  (default: ~/.local/bin) # true-up:ignore-line no-machine-local-paths
+#   --home <dir>       where to place the tool files            (default: ~/.local/share/true-up) # true-up:ignore-line no-machine-local-paths
 #   --no-skill         do not install the agent SKILL.md
 #   --force            reinstall even if the same version is present
 #   --quiet            errors only

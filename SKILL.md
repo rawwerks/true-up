@@ -50,17 +50,20 @@ node bin/true-up --repo <target-repo> [command]
 ```
 
 `--repo` resolves the target; absent it, the tool uses `$TRUE_UP_REPO`, then the Git/jj toplevel of
-the CWD, then the CWD. All paths/targets below are relative to that target repo. The `true-up`
-shorthand in the examples is that same command.
+the CWD, then the CWD. All paths/targets below are relative to that target repo. In multi-worktree or
+jj sessions, start with `true-up status --json` and inspect `.workspace.root`, `.workspace.repoSource`,
+`.workspace.git.linkedWorktree`, `.workspace.vcs`, and `.workspace.warnings` before acting. The
+`true-up` shorthand in the examples is that same command.
 
 ## Run it
 
 ```sh
-true-up status                   # START HERE: read-only orientation in ONE call (built? stale? + nextCommands[]); always exit 0
+true-up status                   # START HERE: target workspace + built? stale? + nextCommands[]; exit 2 only on usage errors like a bad --since
 true-up graph --json             # inspect the actual nodes, audiences, edges, propagation, and generator via fields
 true-up robot-docs               # paste-ready in-tool agent handbook (task → command)
 true-up build                    # build the graph (.true-up/depgraph.json)  (bare `true-up` is an alias)
 true-up --impact --since HEAD~1  # Git base; in jj-only repos use --since @-
+true-up --impact --since HEAD~1 --proof --json  # audit completed pass: changed facts -> dependents edited in-range
 true-up run --since HEAD~1       # detect → regenerate mechanical → advisory worklist → verify (jj-only: --since @-)
 true-up gate                     # one CI/pre-commit stage: --check + --policy + --externalities; EXIT 1 on any failure (--json for per-check status)
 true-up hooks --install          # wire a per-repo pre-commit + pre-push gate (--ci prints a CI snippet; --uninstall removes)
@@ -82,6 +85,11 @@ true-up --repo <path>            # target another repo
 **stdout** (data only; diagnostics go to stderr), so an agent/workflow parses the result instead of
 scraping human text. `true-up capabilities` returns the whole contract (commands, flags, the exit-code
 dictionary) so you never have to remember it. A mistyped command gets a `did you mean: …` suggestion.
+For `status --json`, `ok` means the probe ran; `gateGreen` means cache/policy/leak gates are clean;
+`green` means no truing-up work remains. Automation should not treat `ok: true` as "done." Agents in
+parallel worktrees should also check `.workspace.root` and `.workspace.warnings` before running any
+suggested command. When status was run through `--repo` or `$TRUE_UP_REPO` from another repo,
+`nextCommands[]` are repo-qualified with `--repo <root>` for safe copy-paste across panes.
 
 `run` is the deterministic gate: it regenerates mechanical dependents, prints the advisory worklist,
 and verifies (policy clean + on-disk graph in sync). The CLI never edits prose. The **agentic layer**
@@ -90,11 +98,24 @@ that makes the minimal advisory prose edits lives in [`workflows/`](./workflows/
 separate report-only `audit` workflow (whole-repo lint + drift + candidate missing edges; proposes,
 never decides). Use `maintenance` after a change; run `audit` deliberately (pre-release / periodic).
 
+true-up does not replace the target repo's formatter, linter, or test suite. Discover those from the
+repo's package scripts, CI, or contributor docs and run them separately, then run `true-up gate` as the
+cross-file dependency/leak gate. If a formatter or lint fixer rewrites files, rerun
+`true-up status --since <ref>` because those edits may move tracked facts, spans, or generated outputs.
+
 ## How to read the output
 
 - **mechanical** dependents = regenerated automatically (generated views) — no prose edit.
 - **advisory** dependents = a human or LLM must rewrite the prose to match the moved fact, minimally.
   true-up does **not** edit prose itself; it tells you precisely what and why (which fact moved).
+- `true-up --impact <source>` is the full blast-radius list: it prints every dependent artifact. If
+  many generated files share one generator `via`, `--impact` still lists all files; `run` executes that
+  distinct `via` once.
+- `true-up --impact --since <ref>` is the remaining-stale view. After an agent has already edited a
+  dependent, that dependent may be absent from the default list because it changed in the same range.
+  Add `--proof --json` to audit changed facts and mark dependents as `changed-in-range` or
+  `not-changed-in-range`; live symlink aliases are marked `satisfied-by-live-alias`. This proves edit
+  coverage, not semantic correctness.
 
 ## Exit codes (so you can gate on them)
 
@@ -107,7 +128,7 @@ never decides). Use `maintenance` after a change; run `audit` deliberately (pre-
 - `--policy` / `--externalities` — exit 1 on any violation/leak; exit 0 when clean. Add `--report`
   to force exit 0 (print the findings without failing the build — report-only).
 - `--impact --since <ref>` — exit 0; but a `<ref>` that does not resolve to a commit exits 2 (a bad
-  ref is an error, never a silent "0 dependents").
+  ref is an error, never a silent "0 dependents"). Add `--proof` for the completed-pass audit map.
 - `run` — exit 0 if GREEN; exit 1 if not GREEN (a generator failed, policy had violations, or the
   graph is stale). With `--strict`, exit 2 when advisory prose still needs review.
 - `--verify-scope --since <ref>` — the anti-code-golf gate. exit 0 if every changed file is *explained*

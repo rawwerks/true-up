@@ -30,13 +30,13 @@ package.json       npm allowlist + optional tree-sitter peer/dev deps (EXACT-pin
 The CLI is a set of gates, so exit codes are load-bearing — wire them straight into pre-commit/CI.
 Verify against `lib/engine.mjs` before changing any of this.
 
-- `true-up status [--since <ref>]` — **read-only ORIENTATION mega-command** (Axiom 10): one call returns built/stale, graph stats, what's stale since `<ref>` (mechanical + advisory worklist), policy/leak status, and copy-paste `nextCommands[]`. **Always exits 0** (a probe, not a gate — `gate` is the authoritative CI exit) and writes nothing. The canonical first command an agent reaches for; `triage`/`doctor`/`overview`/`update`/`docs` etc. redirect here or to the right verb via an intent/synonym map (not just lexical did-you-mean).
+- `true-up status [--since <ref>]` — **read-only ORIENTATION mega-command** (Axiom 10): one call returns workspace identity (`workspace.root`, target source `cwd`/`$TRUE_UP_REPO`/`--repo`, Git linked-worktree metadata, jj mode, mismatch warnings), built/stale, graph stats, what's stale since `<ref>` (mechanical + advisory worklist), policy/leak status, and copy-paste `nextCommands[]`. Exits 0 as a probe (not a gate — `gate` is the authoritative CI exit), exits 2 only for usage errors such as a bad `--since` ref/revset, and writes nothing. The canonical first command an agent reaches for; `triage`/`doctor`/`overview`/`update`/`docs` etc. redirect here or to the right verb via an intent/synonym map (not just lexical did-you-mean). Multi-agent/multi-worktree agents must inspect `.workspace` before acting on `nextCommands`.
 - `true-up graph [--json]` — **read-only graph inspection**: prints the actual nodes, audiences/zones, edges, propagation, and generator `via` fields. This is the command for "show me the graph" / "look at the data"; writes nothing.
 - `true-up build` — explicit verb for the bare build below (discoverable alias).
 - `true-up` (no args) — (re)build + write the graph JSON to `out` (default `.true-up/depgraph.json`). Exit 1 on an unresolved anchor (fail-loud); otherwise exit 0. Prints a NOTICE when no facts/edges are declared (the drift layer is INERT).
 - `true-up --check` — working-tree freshness: exit 1 if the ON-DISK graph differs from a fresh rebuild.
 - `true-up --check --committed` — the real drift gate: exit 1 if the VCS-stored graph blob differs from a fresh rebuild. Git prefers the staged blob for pre-commit, else `HEAD:` for CI; jj-only reads `@`. A missing/untracked graph fails (false assurance is worse than none).
-- `true-up --impact <path|path#fact>… [--since <ref>]` — who is made stale; exit 0. A bad Git ref / jj revset exits 2 (not a silent "0 dependents"); no graph on disk exits 2.
+- `true-up --impact <path|path#fact>… [--since <ref>] [--proof]` — who is made stale; exit 0. It must list every dependent artifact; do not collapse generated outputs just because they share one generator `via`. With `--since`, the default view is "remaining stale"; `--proof` adds an audit map from changed facts/sources to dependents and marks whether dependents changed in the same range. A bad Git ref / jj revset exits 2 (not a silent "0 dependents"); no graph on disk exits 2.
 - `true-up --policy [--report]` — zone/visibility lint. **EXIT 1 on violations**; `--report` forces exit 0 (report-only).
 - `true-up --externalities [--report]` — machine-local-path leak scan. **EXIT 1 on leaks**; `--report` forces exit 0.
 - `true-up --verify-scope [--since <ref>]` — anti-code-golf gate: exit 1 (naming the file) if a changed file is not explained by the graph (the changed source, its regenerated/advisory dependents, or the cache). Vacuous (exit 0, stderr NOTE) on a no-edge repo. Bad ref exits 2.
@@ -90,6 +90,8 @@ Verify against `lib/engine.mjs` before changing any of this.
    global, like `--json`) persists NOTHING — build computes in memory, `--impact`/`run` fall back to an
    in-memory build, `run --no-write` is a dry-run. ENFORCED by the T35 keystone (snapshot every file
    before/after every read-side command → zero content-byte change) + T38 (`--no-write` writes nothing).
+   Graph writes use a temp file plus rename so concurrent agents rebuilding the same worktree graph do
+   not leave a torn JSON file; tests exercise parallel builds.
    A tracked generated graph under `.true-up/` is still part of the write surface and MUST remain
    writable; only tracked *content* outputs are refused (T14b prevents the 0.1.1 regression).
    Edges are declarable **marker-free** via fact-granular `seed` (`to: path#fact` → JSON-key / span /
@@ -186,6 +188,18 @@ Provenance: these came from a real user dogfooding report (telltail v0.1.0) run 
 - **No hardcoded repo-local paths in a repo-agnostic tool.** Dead hints like `node meta/build-depgraph.mjs`
   and a hardcoded `meta/depgraph.json` would `MODULE_NOT_FOUND` when the tool runs against any other
   repo; use `rel(OUT)`/`rel(self)` so messages are correct in the target repo. (MED.)
+- **Impact is a blast-radius list; generator execution is a separate grouping.** Telltail docs-site
+  exposed the trap: 20 API pages and 17 CLI pages all depended on source generators while sharing one
+  wrapper `via`. `--impact <generator-file>` must enumerate every generated page, both human and JSON;
+  only `run` should deduplicate by distinct `via` when deciding what executable to invoke. If a UI ever
+  groups or summarizes this, it must say how many dependents were omitted. (MED.)
+- **Completed-pass audit is different from remaining-stale impact.** Prose-lint feedback surfaced a
+  real audit gap: after a rename workflow edits both a source fact and its dependent docs,
+  `--impact --since <ref>` can show changed facts but zero dependents because the downstream files are
+  themselves changed seeds. Keep that default; it answers "what remains stale." Use `--proof` for the
+  proof/report view: changed fact/source → dependents, with each dependent marked `changed-in-range` or
+  `not-changed-in-range`. Do not call `changed-in-range` semantic verification; it proves edit coverage.
+  (MED.)
 - **Fact-model scope was a JSON-only boundary — now lifted for code (Tier 1 + Tier 2).** Historically
   `extractFacts` only decomposed top-level JSON arrays-of-objects and `listFiles` kept `.md/.json/.mjs/.js`,
   so a `.py` source-of-truth got 0 fact-nodes and was inert. Code is now fact-granular two ways, both
@@ -206,6 +220,10 @@ Provenance: these came from a real user dogfooding report (telltail v0.1.0) run 
 - New edge kind → give it a propagation (`mechanical`/`advisory`) and a direction basis; add a test.
 - New policy rule → add to the zone `rules` vocabulary + a mechanical check; default-enforce on all
   public files where it's a leak class (see the no-machine-local-paths / private-leak pattern).
+- Linter integration → keep it compositional unless a concrete user workflow proves otherwise. true-up
+  should not choose or run a project's formatter/linter from `.true-up.json`; docs should show users how
+  to chain their existing lint/test command with `true-up gate`, and agents should rerun
+  `true-up status --since <ref>` after any formatter/lint fixer rewrites files.
 - New leak detector → scan `stripCode(content)`, never the raw content: a doc that legitimately quotes
   a forbidden path/token shape inside an inline/fenced code span must not false-positive (`stripCode`
   blanks code spans while preserving line numbers). Then honor the per-line suppression directives so a
@@ -246,4 +264,7 @@ deterministic gate, pin the submodule to a tag and (if using Tier 2) commit the 
   `run` prints is reviewed/rewritten by a human or LLM; the CLI itself never edits prose.
 - An installer that wires git hooks (a shared read-only gate on pre-commit AND pre-push — note that
   `jj commit` bypasses git hooks, so the gate must live on pre-push too) + CI into a target repo.
+- Optional hashlines for proof/audit modes: compute line/window fingerprints with the existing crypto
+  stack only when requested (for relocation/proof across parallel worktrees), never as primary graph
+  identity and never persisted by default in the graph. Stable IDs remain path/fact/symbol/span/seed.
 - mycelium note enrichment (knowledge layer alongside the structural graph).

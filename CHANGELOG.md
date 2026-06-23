@@ -8,6 +8,45 @@ surface in [`meta/contract.json`](meta/contract.json) (`true-up capabilities`, `
 Scope: from the initial commit through the first tagged release. Links point at the canonical
 commit pages on GitHub (`rawwerks/true-up`). No GitHub *Releases* existed before `v0.1.0`.
 
+## [0.1.4] - 2026-06-23
+
+A multi-agent, multi-worktree usability patch. No breaking changes; JSON consumers get additive fields,
+and copied `status` next-commands are safer when the target repo is not the caller's CWD.
+
+### Added
+- **Workspace identity in `status`.** Human and JSON status now name the resolved target root, selection
+  source (`cwd`, `$TRUE_UP_REPO`, or `--repo`), caller CWD, Git linked-worktree metadata, jj mode, and
+  mismatch warnings. Agents can inspect `.workspace` before copying a command between panes or
+  worktrees.
+- **Completed-pass proof mode for impact.** `true-up --impact --since <ref> --proof --json` reports
+  changed facts/sources, their dependents, and whether each dependent changed in the same range. This
+  covers the rename-workflow audit case where the default remaining-stale view correctly omits already
+  edited dependents.
+
+### Changed
+- **Safer `nextCommands` across workspaces.** When `status` is run from one repo while targeting another
+  via `$TRUE_UP_REPO` or `--repo`, suggested commands are repo-qualified with `--repo <target-root>` so
+  another agent does not accidentally rebuild or inspect its own CWD.
+- **Atomic graph writes.** Builds write `.true-up/depgraph.json` through a temp file plus rename, so
+  parallel agents rebuilding the same graph do not leave torn JSON for readers.
+- **Impact remains a full blast-radius list.** Explicit `--impact <source>` lists every dependent output
+  even when many generated files share one generator `via`; `run` is the place that deduplicates
+  generator execution.
+- Docs now clarify how to compose true-up with an existing formatter/linter in hooks or CI without
+  making true-up choose or run a project-specific linter.
+
+### Fixed
+- jj-only status now resolves correctly from nested subdirectories and exposes a uniform workspace schema
+  (`git: null`, jj metadata present).
+- jj-only explicit `--repo` paths now still fail closed when the path is nonexistent or a file; the
+  nested-subdirectory fallback no longer silently retargets the parent workspace.
+- `status --since <bad-ref>` now has a documented exit-2 contract in capabilities and docs instead of
+  being described as unconditional exit 0.
+- `--impact --since <ref>` rejects stray explicit targets instead of silently mixing modes, and proof
+  summaries include unique dependent counts so duplicate fact edges do not inflate the audit headline.
+- Since-mode impact and `run` no longer report live symlink aliases as pending mechanical work; proof
+  output marks them as satisfied by the alias instead of as missing edits.
+
 ## [0.1.3] - 2026-06-22
 
 A self-dogfood patch for release and agent guidance. No breaking changes.
@@ -74,6 +113,7 @@ A compatibility patch for real-world committed-graph and Jujutsu workspaces. No 
 
 | Version | Date | Summary |
 |---|---|---|
+| [0.1.4](#014--2026-06-23) | 2026-06-23 | Multi-agent/worktree status identity, repo-qualified next commands, impact proof mode, and atomic graph writes. |
 | [0.1.3](#013--2026-06-22) | 2026-06-22 | Agent guidance and npm publishing handoff are modeled in true-up's own dependency graph. |
 | [0.1.2](#012--2026-06-22) | 2026-06-22 | jj-only workspace support plus the committed-graph output fix for repos that intentionally track `.true-up/depgraph.json`. |
 | [0.1.1](#011--2026-06-22) | 2026-06-22 | Docs rewritten for users (README no longer leaked internal/maintainer framing); a doc-fact-check found and fixed real drift (a README config example that failed to build, an `init` exit-code claim, an installer `--help` source leak); six deterministic doc/marker-drift gates added so it can't recur. |
@@ -201,6 +241,7 @@ Every fix ships with a regression test (`tests/engine.sh` T40–T72).
 - **Determinism:** the graph is byte-stable (sorted, no timestamps); pin the tool version for a gate
   shared across machines.
 
+[0.1.4]: https://github.com/rawwerks/true-up/releases/tag/v0.1.4
 [0.1.3]: https://github.com/rawwerks/true-up/releases/tag/v0.1.3
 [0.1.2]: https://github.com/rawwerks/true-up/releases/tag/v0.1.2
 [0.1.1]: https://github.com/rawwerks/true-up/releases/tag/v0.1.1

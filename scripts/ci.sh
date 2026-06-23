@@ -3,7 +3,8 @@
 # scripts/ci.sh — true-up's TRUSTED LOCAL CI / release gate.
 # Tests ARE the harness: one command runs the whole publish-readiness chain and exits
 # nonzero on ANY failure. prepublishOnly invokes this, so a broken build cannot publish.
-# Sub-minute (npm test dominates). Not dependent on GitHub Actions.
+# Sub-minute (npm test dominates). The fixture suite includes multi-worktree/jj workspace,
+# repo-qualified next-command, and parallel graph-write regressions. Not dependent on GitHub Actions.
 #   Run: npm run ci   (or: bash scripts/ci.sh)
 set -euo pipefail
 

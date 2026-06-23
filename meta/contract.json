@@ -29,7 +29,7 @@
     },
     {
       "name": "--impact",
-      "summary": "who is made stale (unknown target → exit 2, not a false \"0 dependents\")",
+      "summary": "who is made stale (unknown target → exit 2, not a false \"0 dependents\"); --proof shows changed facts and dependents already edited in-range",
       "json": true,
       "exits": [
         0,
@@ -147,17 +147,18 @@
     },
     {
       "name": "status",
-      "summary": "READ-ONLY orientation in ONE call: built/stale, what is stale, policy/leak status, + nextCommands[]. Always exit 0 (a probe, not a gate).",
+      "summary": "READ-ONLY orientation in ONE call: target workspace identity, built/stale, what is stale, policy/leak status, + nextCommands[]. Exit 0 as a probe; exit 2 only for usage errors such as a bad --since ref/revset.",
       "json": true,
       "exits": [
-        0
+        0,
+        2
       ]
     }
   ],
   "agent_guidance": [
     {
       "name": "declared-seed-edge",
-      "summary": "config \"seed\": [{ \"from\": \"doc.md\", \"to\": \"src/app.py#parse_config\", \"kind\": \"derives-facts-from\" }] declares a marker-free edge; \"to\" may be a whole file or path#fact (JSON key, span id, or tree-sitter symbol); use kind \"generated-from\" plus required \"via\" for marker-free mechanical generated artifacts (via is a tracked in-repo generator path; JS runs with node, shell/python/ruby/perl by extension, extensionless/shebang directly); bad endpoints fail loud"
+      "summary": "config \"seed\": [{ \"from\": \"doc.md\", \"to\": \"src/app.py#parse_config\", \"kind\": \"derives-facts-from\" }] declares a marker-free edge; \"to\" may be a whole file or path#fact (JSON key, span id, or tree-sitter symbol); use kind \"generated-from\" plus required \"via\" for marker-free mechanical generated artifacts (via is a tracked in-repo generator path; JS runs with node, shell/python/ruby/perl by extension, extensionless/shebang directly); --impact lists every generated dependent even when many share one via, while run executes each distinct via once; bad endpoints fail loud"
     }
   ]
 }

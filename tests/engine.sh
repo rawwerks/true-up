@@ -54,8 +54,8 @@ fi
 # depends on (or writes to) the dev's personal jj config, on any machine.
 JJCFG="$(mktemp)"; printf '[user]\nname = "true-up tests"\nemail = "tests@true-up.invalid"\n' > "$JJCFG"; export JJ_CONFIG="$JJCFG"
 
-FIX="$(mktemp -d)"; H=""; C=""; CG=""; P=""; E=""; V=""; M=""; S=""; Y=""; Z=""; G=""; K=""; SD=""; MG=""; JJO=""; JJC=""
-trap 'rm -rf "$FIX" "$H" "$C" "$CG" "$P" "$E" "$V" "$M" "$S" "$Y" "$Z" "$G" "$K" "$SD" "$MG" "$JJO" "$JJC" "$JJCFG"' EXIT
+FIX="$(mktemp -d)"; H=""; C=""; CG=""; P=""; E=""; V=""; M=""; S=""; Y=""; Z=""; G=""; K=""; SD=""; MG=""; PD=""; SY=""; WTBASE=""; WTLINK=""; WTCWD=""; CYC=""; JJO=""; JJC=""
+trap 'rm -rf "$FIX" "$H" "$C" "$CG" "$P" "$E" "$V" "$M" "$S" "$Y" "$Z" "$G" "$K" "$SD" "$MG" "$PD" "$SY" "$WTBASE" "$WTLINK" "$WTCWD" "$CYC" "$JJO" "$JJC" "$JJCFG"' EXIT
 
 # --- synthesize a target repo: steward data + a generated view + an anchored doc + a symlink ---
 git -C "$FIX" init -q
@@ -469,10 +469,15 @@ printf '%s' '{"zones":[{"path":"","visibility":"public","audience":"world","inte
 git -C "$MG" add -A && git -C "$MG" -c user.email=t@t -c user.name=t commit -qm missing-via
 out="$($TU --repo "$MG" 2>&1)"; rc=$?
 { [ "$rc" -ne 0 ] && echo "$out" | grep -q 'via'; } && ok "marker-free generated seed: missing via fails loud" || no "generated-from seed without via must not pass green"
-printf '%s' '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}],"seed":[{"from":"out.md","to":"data.json","kind":"generated-from","via":"gen.mjs"}]}' > "$MG/.true-up.json"
+printf '%s\n' 'stale-a' > "$MG/out-a.md"
+printf '%s\n' 'stale-b' > "$MG/out-b.md"
+printf '%s' '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}],"seed":[{"from":"out.md","to":"data.json","kind":"generated-from","via":"gen.mjs"},{"from":"out-a.md","to":"data.json","kind":"generated-from","via":"gen.mjs"},{"from":"out-b.md","to":"data.json","kind":"generated-from","via":"gen.mjs"}]}' > "$MG/.true-up.json"
 git -C "$MG" add -A && git -C "$MG" -c user.email=t@t -c user.name=t commit -qm init
 $TU --repo "$MG" >/dev/null 2>&1
 $TU --repo "$MG" --impact data.json --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.mechanical&&d.mechanical.some(x=>x.node==="file:out.md"&&x.via==="gen.mjs")?0:1)' && ok "marker-free generated seed: impact reports mechanical dependent + via" || no "generated-from seed must be mechanical and carry via"
+impact="$($TU --repo "$MG" --impact data.json 2>/dev/null)"
+{ echo "$impact" | grep -q '3 mechanical' && echo "$impact" | grep -q 'out.md' && echo "$impact" | grep -q 'out-a.md' && echo "$impact" | grep -q 'out-b.md'; } && ok "marker-free generated seed: impact lists EVERY generated dependent sharing one via" || no "impact must not collapse generated dependents that share a via"
+$TU --repo "$MG" --impact data.json --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const got=new Set((d.mechanical||[]).map(x=>x.node));const via=new Set((d.mechanical||[]).map(x=>x.via));process.exit(d.counts.mechanical===3&&via.size===1&&via.has("gen.mjs")&&["file:out.md","file:out-a.md","file:out-b.md"].every(x=>got.has(x))?0:1)' && ok "marker-free generated seed: --json impact lists EVERY dependent sharing one via" || no "--impact --json must not collapse generated dependents that share a via"
 printf '%s\n' '{"v":2}' > "$MG/data.json"
 $TU --repo "$MG" run --since HEAD >/dev/null 2>&1
 grep -qx 'v=2' "$MG/out.md" && ok "marker-free generated seed: run executes the declared generator" || no "run must execute generated-from seed via"
@@ -488,6 +493,39 @@ git -C "$MG" add -A && git -C "$MG" -c user.email=t@t -c user.name=t commit -qm 
 printf '%s\n' '{"v":3}' > "$MG/data.json"
 $TU --repo "$MG" run --since HEAD >/dev/null 2>&1
 grep -qx 'v=3' "$MG/out.md" && ok "marker-free generated seed: shell via is repo-general (not Node-only)" || no "run must execute shell via without node-wrapping it"
+
+# T37c — --impact --since is a "remaining stale" view. After a successful maintenance pass, changed
+# downstream docs are seeds too, so they can disappear from the default dependent list. --proof is the
+# audit view: changed fact -> dependents, marking which dependents were already edited in the range.
+PF="$(mktemp -d)"; git -C "$PF" init -q
+printf '%s' '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}]}' > "$PF/.true-up.json"
+printf '%s\n' '# true-up:anchor id=api' 'def command_surface():' '    return "old"' '# true-up:end' > "$PF/tool.py"
+printf '%s\n' '# CLI' 'Old command surface. <!-- fact: tool.py#api -->' > "$PF/doc.md"
+git -C "$PF" add -A && git -C "$PF" -c user.email=t@t -c user.name=t commit -qm base
+$TU --repo "$PF" >/dev/null 2>&1
+printf '%s\n' '# true-up:anchor id=api' 'def command_surface():' '    return "new"' '# true-up:end' > "$PF/tool.py"
+printf '%s\n' '# CLI' 'New command surface. <!-- fact: tool.py#api -->' > "$PF/doc.md"
+$TU --repo "$PF" >/dev/null 2>&1
+js="$($TU --repo "$PF" --impact --since HEAD --json 2>/dev/null)"
+printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.changedFacts.includes("fact:tool.py#api")&&d.counts.total===0?0:1)' && ok "--impact --since: already-edited dependent can be absent from remaining-stale list" || no "--impact --since default should remain the current-stale view"
+js="$($TU --repo "$PF" --impact --since HEAD --proof --json 2>/dev/null)"
+printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const src=(d.proof.sources||[]).find(s=>s.source==="fact:tool.py#api");const dep=src&&src.dependents.find(x=>x.node==="file:doc.md");process.exit(dep&&dep.status==="changed-in-range"&&d.proof.summary.changedInRange>=1?0:1)' && ok "--impact --proof: changed fact reports dependent already edited in-range" || no "--impact --proof must explain satisfied/edited dependents"
+out="$($TU --repo "$PF" --impact --since HEAD --proof 2>/dev/null)"
+{ echo "$out" | grep -q 'PROOF' && echo "$out" | grep -q 'doc.md' && echo "$out" | grep -q 'changed-in-range'; } && ok "--impact --proof: human output names edited dependent" || no "--impact --proof human output must show edited dependents"
+$TU --repo "$PF" --impact tool.py#api --proof >/dev/null 2>&1; [ "$?" -eq 2 ] && ok "--impact --proof requires --since (usage error, no ambiguous explicit-target proof)" || no "--impact --proof without --since must fail loud"
+$TU --repo "$PF" --impact --since HEAD extra >/dev/null 2>&1; [ "$?" -eq 2 ] && ok "--impact --since rejects stray explicit targets" || no "--impact --since must not silently ignore explicit targets"
+$TU --repo "$PF" --impact --since HEAD --proof extra >/dev/null 2>&1; [ "$?" -eq 2 ] && ok "--impact --since --proof rejects stray explicit targets" || no "--impact --since --proof must not silently ignore explicit targets"
+PD="$(mktemp -d)"; git -C "$PD" init -q
+printf '%s\n' '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}],"seed":[{"from":"doc.md","to":"tool.py#a","kind":"derives-facts-from"},{"from":"doc.md","to":"tool.py#b","kind":"derives-facts-from"}]}' > "$PD/.true-up.json"
+printf '%s\n' '# true-up:anchor id=a' 'A = 1' '# true-up:end' '# true-up:anchor id=b' 'B = 1' '# true-up:end' > "$PD/tool.py"
+printf 'A and B.\n' > "$PD/doc.md"
+git -C "$PD" add -A && git -C "$PD" -c user.email=t@t -c user.name=t commit -qm base
+$TU --repo "$PD" build >/dev/null 2>&1
+printf '%s\n' '# true-up:anchor id=a' 'A = 2' '# true-up:end' '# true-up:anchor id=b' 'B = 2' '# true-up:end' > "$PD/tool.py"
+printf 'A and B updated.\n' > "$PD/doc.md"
+$TU --repo "$PD" build >/dev/null 2>&1
+js="$($TU --repo "$PD" --impact --since HEAD --proof --json 2>/dev/null)"
+printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const s=d.proof.summary;process.exit(s.sourceDependentEdges===2&&s.dependents===2&&s.uniqueDependents===1&&s.uniqueChangedInRange===1?0:1)' && ok "--impact --proof summary includes unique dependent counts" || no "--impact --proof summary must distinguish entries from unique dependents"
 
 # T38 — --no-write: a fully-stateless audit that writes NOTHING — not even .true-up/. Query commands
 # fall back to an in-memory build instead of "build the graph first". (The owner's "truly no file edits".)
@@ -628,9 +666,54 @@ printf 'a\n' > "$ST/a.md"; git -C "$ST" add -A && git -C "$ST" -c user.email=t@t
 $TU --repo "$ST" status >/dev/null 2>&1; rc=$?; [ "$rc" -eq 0 ] && ok "status exits 0 even when not built (probe, not gate)" || no "status must exit 0 (rc=$rc)"
 [ ! -e "$ST/.true-up" ] && ok "status writes nothing (read-only probe)" || no "status mutated the repo"
 js="$($TU --repo "$ST" status --json 2>/dev/null)"; printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===true&&d.built===false&&Array.isArray(d.nextCommands)&&d.nextCommands.length>0&&d._v===1?0:1)' && ok "status --json carries ok/built/nextCommands/_v" || no "status --json shape"
+js="$($TU --repo "$ST" status --since definitely-not-a-ref --json 2>/dev/null)"; rc=$?
+{ [ "$rc" -eq 2 ] && printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===false&&d.ref==="definitely-not-a-ref"&&/bad .*ref/.test(d.error||"")?0:1)'; } && ok "status --json exits 2 with {ok:false} for a bad --since ref" || no "status bad --since contract must be documented and parseable (rc=$rc)"
 
 # T65 — `build` verb persists the graph (explicit, discoverable alias of bare true-up)
 $TU --repo "$ST" build >/dev/null 2>&1; rc=$?; { [ "$rc" -eq 0 ] && [ -f "$ST/.true-up/depgraph.json" ]; } && ok "build verb persists the graph" || no "build must persist (rc=$rc)"
+
+# T65a — workspace identity: agents in subdirs, linked worktrees, or leaked TRUE_UP_REPO must see
+# exactly which repo/workspace true-up targeted before they act on nextCommands.
+WTBASE="$(mktemp -d)"; git -C "$WTBASE" init -q
+printf '{"facts":{"data.json":[["items","id"]]},"zones":[{"path":"","visibility":"public","audience":"world","intent":"p","rules":[]}],"seed":[{"from":"doc.md","to":"data.json#items.a"}]}\n' > "$WTBASE/.true-up.json"
+printf '{"items":[{"id":"a","v":1}]}\n' > "$WTBASE/data.json"
+printf 'a <!-- fact: data.json#items.a -->\n' > "$WTBASE/doc.md"
+$TU --repo "$WTBASE" build >/dev/null 2>&1
+git -C "$WTBASE" add -A && git -C "$WTBASE" -c user.email=t@t -c user.name=t commit -qm base
+WTLINK="$(mktemp -d)"; rm -rf "$WTLINK"; git -C "$WTBASE" worktree add -q -b wt-linked "$WTLINK"
+mkdir -p "$WTLINK/sub/dir"
+js="$(cd "$WTLINK/sub/dir" && $TU status --json 2>/dev/null)"
+printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.workspace&&d.workspace.vcs==="git"&&d.workspace.repoSource==="cwd"&&d.workspace.cwdRelative==="sub/dir"&&d.workspace.git&&d.workspace.git.linkedWorktree===true&&d.workspace.root===process.argv[1]?0:1)' "$WTLINK" && ok "status --json identifies cwd-selected Git linked worktree + cwdRelative" || no "status must expose linked worktree identity"
+out="$(cd "$WTLINK/sub/dir" && $TU status 2>/dev/null)"
+{ echo "$out" | grep -q 'git linked-worktree' && echo "$out" | grep -q 'selected: cwd'; } && ok "status human output names linked worktree target selection" || no "status human output must name linked worktree selection"
+rm -rf "$WTBASE/.true-up"
+WTCWD="$(mktemp -d)"; git -C "$WTCWD" init -q; mkdir -p "$WTCWD/nested"
+js="$(cd "$WTCWD/nested" && TRUE_UP_REPO="$WTBASE" $TU status --json 2>/dev/null)"
+printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const w=d.workspace||{};const nc=(d.nextCommands||[]).join("\n");process.exit(w.repoSource==="$TRUE_UP_REPO"&&w.root===process.argv[1]&&w.cwd===process.argv[2]&&Array.isArray(w.warnings)&&w.warnings.some(x=>x.kind==="cwd-target-mismatch")&&w.commandPrefix&&w.commandPrefix.includes("--repo")&&nc.includes("--repo")?0:1)' "$WTBASE" "$WTCWD/nested" && ok "status warns on cwd/target mismatch and repo-qualifies nextCommands" || no "status must warn and qualify nextCommands on cwd/target mismatch"
+cmd="$(printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write((d.nextCommands.find(c=>c.includes(" build"))||"").split("#")[0].trim())')"
+cmd="${cmd/#true-up/$TU}"
+( cd "$WTCWD/nested" && bash -lc "$cmd" ) >/dev/null 2>&1
+{ [ -f "$WTBASE/.true-up/depgraph.json" ] && [ ! -e "$WTCWD/.true-up/depgraph.json" ]; } && ok "repo-qualified nextCommand affects TRUE_UP_REPO target, not caller CWD repo" || no "qualified nextCommand must not retarget to caller CWD"
+
+# T65a2 — graph writes are atomic enough for parallel builds: many agents rebuilding the cache should
+# never leave a truncated/non-JSON depgraph behind.
+reader_fail="$WTBASE/reader.fail"; rm -f "$reader_fail"
+( for _ in $(seq 1 200); do node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$WTBASE/.true-up/depgraph.json" >/dev/null 2>&1 || { printf fail > "$reader_fail"; exit 1; }; done ) &
+reader_pid=$!
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do $TU --repo "$WTBASE" build >/dev/null 2>&1 & done
+wait
+wait "$reader_pid" >/dev/null 2>&1 || true
+node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$WTBASE/.true-up/depgraph.json" && ok "parallel builds leave a valid JSON graph (atomic write)" || no "parallel builds must not leave a torn graph"
+[ ! -e "$reader_fail" ] && ok "concurrent reader never saw a torn graph during parallel builds" || no "concurrent reader saw torn graph during writes"
+
+# T65a3 — cycles are legal graph data but traversal must dedupe and terminate.
+CYC="$(mktemp -d)"; git -C "$CYC" init -q
+printf '{"zones":[{"path":"","visibility":"public","audience":"world","intent":"p","rules":[]}],"seed":[{"from":"a.md","to":"b.md","kind":"derives-facts-from"},{"from":"b.md","to":"a.md","kind":"derives-facts-from"}]}\n' > "$CYC/.true-up.json"
+printf 'a\n' > "$CYC/a.md"; printf 'b\n' > "$CYC/b.md"
+git -C "$CYC" add -A && git -C "$CYC" -c user.email=t@t -c user.name=t commit -qm base
+$TU --repo "$CYC" build >/dev/null 2>&1
+js="$($TU --repo "$CYC" --impact a.md --json 2>/dev/null)"
+printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const all=[...(d.mechanical||[]),...(d.advisory||[])].map(x=>x.node);process.exit(d.counts.total===1&&all[0]==="file:b.md"?0:1)' && ok "cycle traversal terminates and dedupes dependents" || no "cycles must not recurse forever or report the seed as its own dependent"
 
 # T65b..f — NEW-USER ONBOARDING regressions (v0.1.3). Provenance: a 3-agent new-user onboarding workflow
 # found that `status` (the advertised first command) said "GREEN ✓ (nothing to do)" on an un-wired
@@ -650,6 +733,21 @@ printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"ut
 # build/graph --json expose the SAME tracking signal as status (structured consumers see it too).
 bj="$($TU --repo "$SY" --no-write --json 2>/dev/null)"
 printf '%s' "$bj" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.edges>=1&&d.declaredEdges===0&&d.tracking===false?0:1)' && ok "build --json exposes declaredEdges/tracking (symlink-only ⇒ tracking=false)" || no "build --json must expose tracking signal"
+printf '{"facts":{"data.json":[["items","id"]]},"zones":[{"path":"","visibility":"public","audience":"world","intent":"p","rules":[]}],"seed":[{"from":"doc.md","to":"data.json#items.a"}]}\n' > "$SY/.true-up.json"
+printf '{"items":[{"id":"a","v":1}]}\n' > "$SY/data.json"
+printf 'd v1 <!-- fact: data.json#items.a -->\n' > "$SY/doc.md"
+$TU --repo "$SY" build >/dev/null 2>&1; git -C "$SY" add -A && git -C "$SY" -c user.email=t@t -c user.name=t commit -qm wired
+printf 'd v2 <!-- fact: data.json#items.a -->\n' > "$SY/doc.md"; $TU --repo "$SY" build >/dev/null 2>&1
+js="$($TU --repo "$SY" --impact doc.md --json 2>/dev/null)"
+printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit((d.mechanical||[]).some(x=>x.kind==="alias-of"&&x.node==="file:link.md")?0:1)' && ok "explicit impact still reports symlink alias dependents" || no "explicit impact must keep alias-of in blast-radius list"
+js="$($TU --repo "$SY" --impact --since HEAD --json 2>/dev/null)"
+printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.counts.total===0&&!(d.mechanical||[]).some(x=>x.kind==="alias-of")?0:1)' && ok "--impact --since does not report live symlink aliases as remaining stale work" || no "--impact --since must not treat live symlink aliases as stale"
+js="$($TU --repo "$SY" --impact --since HEAD --proof --json 2>/dev/null)"
+printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const deps=(d.proof.sources||[]).flatMap(s=>s.dependents||[]);process.exit(deps.some(x=>x.node==="file:link.md"&&x.status==="satisfied-by-live-alias")&&d.proof.summary.uniqueSatisfiedByAlias===1?0:1)' && ok "--impact --proof marks live symlink aliases as satisfied, not missing edits" || no "--impact --proof must distinguish live alias satisfaction"
+js="$($TU --repo "$SY" run --since HEAD --no-write --json 2>/dev/null)"
+printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.mechanical===0&&Array.isArray(d.wouldRegenerate)&&d.wouldRegenerate.length===0?0:1)' && ok "run --no-write does not count live symlink aliases as mechanical work" || no "run must not report symlink aliases as runnable mechanical work"
+js="$($TU --repo "$SY" status --since HEAD --json 2>/dev/null)"
+printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const nc=d.nextCommands.join("\n");process.exit(d.tracking===true&&d.gateGreen===true&&d.impactPending===false&&d.green===true&&d.impact.mechanical.length===0&&!/regenerate/.test(nc)?0:1)' && ok "status does not loop on already-satisfied symlink alias impact" || no "status must not ask agents to regenerate live symlink aliases"
 # T65d — once a REAL edge is wired, status returns to a normal GREEN verdict (no false onboarding alarm).
 WI="$(mktemp -d)"; git -C "$WI" init -q
 printf '{"facts":{"data.json":[["items","id"]]},"zones":[{"path":"","visibility":"public","audience":"world","intent":"p","rules":[]}],"seed":[{"from":"doc.md","to":"data.json#items.a","kind":"derives-facts-from"}]}' > "$WI/.true-up.json"
@@ -657,13 +755,31 @@ printf '{"items":[{"id":"a","v":1}]}' > "$WI/data.json"; printf 'a <!-- fact: da
 $TU --repo "$WI" build >/dev/null 2>&1; git -C "$WI" add -A && git -C "$WI" -c user.email=t@t -c user.name=t commit -qm i
 js="$($TU --repo "$WI" status --json 2>/dev/null)"
 printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.tracking===true&&d.graph.declaredEdges>=1&&d.green===true?0:1)' && ok "wired repo: status tracking=true + GREEN (no false onboarding alarm)" || no "wired repo must read tracking/green"
-# T65e — init scaffolds a copy-paste _seed_example and points to the IN-TOOL robot-docs (NOT docs/CONFIG.md, which an adopter's repo lacks).
+# T65e — status `.green` must mean "no required truing-up work", not merely "cache/gates are clean".
+# A changed source with an unedited advisory dependent is work pending; after the dependent is edited in
+# the same range, status may be green and must not emit rewrite-flavored nextCommands.
+SG="$(mktemp -d)"; git -C "$SG" init -q
+printf '{"facts":{"data.json":[["items","id"]]},"zones":[{"path":"","visibility":"public","audience":"world","intent":"p","rules":[]}],"seed":[{"from":"doc.md","to":"data.json#items.a"}]}\n' > "$SG/.true-up.json"
+printf '{"items":[{"id":"a","v":1}]}\n' > "$SG/data.json"
+printf 'a is 1. <!-- fact: data.json#items.a -->\n' > "$SG/doc.md"
+git -C "$SG" add -A && git -C "$SG" -c user.email=t@t -c user.name=t commit -qm base
+$TU --repo "$SG" build >/dev/null 2>&1
+printf '{"items":[{"id":"a","v":2}]}\n' > "$SG/data.json"
+$TU --repo "$SG" build >/dev/null 2>&1
+js="$($TU --repo "$SG" status --json 2>/dev/null)"
+printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const nc=d.nextCommands.join("\n");process.exit(d.green===false&&d.impactPending===true&&/--proof/.test(nc)&&/review 1 advisory/.test(nc)&&/--since \x27HEAD\x27/.test(nc)?0:1)' && ok "status: pending advisory impact makes green=false + shell-quoted proof-oriented nextCommand" || no "status must not be green while advisory impact is pending"
+printf 'a is 2. <!-- fact: data.json#items.a -->\n' > "$SG/doc.md"
+$TU --repo "$SG" build >/dev/null 2>&1
+js="$($TU --repo "$SG" status --json 2>/dev/null)"
+printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const nc=d.nextCommands.join("\n");process.exit(d.green===true&&d.impactPending===false&&nc.includes("(green — nothing to do)")&&!/rewrite|review [0-9]+ advisory/.test(nc)?0:1)' && ok "status: already-edited dependent returns green with no rewrite-flavored nextCommand" || no "green status must not emit rewrite/review nextCommands"
+
+# T65f — init scaffolds a copy-paste _seed_example and points to the IN-TOOL robot-docs (NOT docs/CONFIG.md, which an adopter's repo lacks).
 IN="$(mktemp -d)"; git -C "$IN" init -q; printf 'x\n' > "$IN/f"; git -C "$IN" add -A && git -C "$IN" -c user.email=t@t -c user.name=t commit -qm i
 initout="$($TU --repo "$IN" init 2>&1)"
 { echo "$initout" | grep -q 'robot-docs' && ! echo "$initout" | grep -q 'docs/CONFIG.md'; } && ok "init message points to in-tool robot-docs, not the dead docs/CONFIG.md breadcrumb" || no "init must point to robot-docs"
 node -e 'const c=require("'"$IN"'/.true-up.json");process.exit(c._seed_example&&c._seed_example.from&&c._seed_example.to&&c._seed_example.kind==="derives-facts-from"?0:1)' && ok "init scaffolds a _seed_example edge showing the shape" || no "init must scaffold _seed_example"
 $TU --repo "$IN" --no-write >/dev/null 2>&1 && ok "scaffold with _seed_example builds cleanly (unknown key ignored, not fatal)" || no "_seed_example must not break build"
-# T65f — build INERT NOTICE points to robot-docs (in-tool), not the dead docs/CONFIG.md breadcrumb.
+# T65g — build INERT NOTICE points to robot-docs (in-tool), not the dead docs/CONFIG.md breadcrumb.
 nb="$($TU --repo "$IN" 2>&1)"
 { echo "$nb" | grep -q 'NOTICE' && echo "$nb" | grep -q 'robot-docs' && ! echo "$nb" | grep -q 'docs/CONFIG.md'; } && ok "build INERT NOTICE points to robot-docs, not docs/CONFIG.md" || no "build NOTICE breadcrumb must be in-tool"
 
@@ -801,7 +917,12 @@ JSON
   js="$($TU --repo "$JJO" --json build 2>/dev/null)"; rc=$?
   { [ "$rc" -eq 0 ] && printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===true&&d.inert===false&&d.factNodes>=2&&d.edges>=3?0:1)'; } && ok "jj-only: build creates a non-inert graph with JSON + span facts" || no "jj-only build must work without a worktree .git (rc=$rc)"
   $TU --repo "$JJO" --check >/dev/null 2>&1 && ok "jj-only: --check passes after build" || no "jj-only --check must pass after build"
-  $TU --repo "$JJO" --impact 'data.json#items.a' 2>/dev/null | grep -q 'doc.md' && ok "jj-only: --impact resolves JSON fact dependents" || no "jj-only --impact JSON fact"
+  mkdir -p "$JJO/deep/subdir"
+	  js="$(cd "$JJO/deep/subdir" && $TU status --json 2>/dev/null)"; rc=$?
+	  { [ "$rc" -eq 0 ] && printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.workspace&&d.workspace.vcs==="jj"&&d.workspace.root===process.argv[1]&&d.workspace.cwdRelative==="deep/subdir"&&d.workspace.since==="@-"&&d.workspace.git===null&&d.workspace.jj&&d.workspace.jj.colocated===false?0:1)' "$JJO"; } && ok "jj-only: status works from nested subdirs and exposes uniform workspace schema" || no "jj-only nested subdir status must resolve workspace root (rc=$rc)"
+	  $TU --repo "$JJO/no-such-dir" status >/dev/null 2>&1; [ "$?" -eq 2 ] && ok "jj-only: explicit nonexistent --repo path fails closed" || no "jj-only nonexistent --repo must not retarget parent workspace"
+	  $TU --repo "$JJO/data.json" status >/dev/null 2>&1; [ "$?" -eq 2 ] && ok "jj-only: explicit file --repo path fails closed" || no "jj-only file --repo must not retarget parent workspace"
+	  $TU --repo "$JJO" --impact 'data.json#items.a' 2>/dev/null | grep -q 'doc.md' && ok "jj-only: --impact resolves JSON fact dependents" || no "jj-only --impact JSON fact"
   $TU --repo "$JJO" --impact 'tool.py#api' 2>/dev/null | grep -q 'span-doc.md' && ok "jj-only: span anchors are discovered without git grep" || no "jj-only span anchor impact"
 
   jj -R "$JJO" commit -m init --no-pager >/dev/null 2>&1
@@ -823,6 +944,8 @@ JSON
   printf 'a <!-- fact: data.json#items.a -->\n' > "$JJC/doc.md"
   $TU --repo "$JJC" build >/dev/null 2>&1
   jj -R "$JJC" commit -m init --no-pager >/dev/null 2>&1
+  js="$($TU --repo "$JJC" status --json 2>/dev/null)"
+  printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.workspace&&d.workspace.vcs==="git"&&d.workspace.jj&&d.workspace.jj.mode==="git-backed"?0:1)' && ok "colocated jj: status reports Git-backed jj workspace identity" || no "colocated jj status must expose git-backed jj mode"
   $TU --repo "$JJC" --check --committed >/dev/null 2>&1 && ok "colocated jj: existing Git-backed behavior still passes" || no "colocated jj regression"
 else
   sk "jj-only VCS conformance ($JJ_SKIP)"

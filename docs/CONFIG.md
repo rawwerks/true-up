@@ -120,6 +120,27 @@ the same findings are still printed, but the command is report-only (use it to s
 without failing the build). `--externalities` is the standalone `no-machine-local-paths` scan over
 public files.
 
+### Using true-up with an existing linter
+
+Keep ordinary linting and formatting in the tool that already owns it; true-up does not configure or
+run a project linter from `.true-up.json`. Compose them at the shell, hook, or CI layer with whatever
+commands the repo already uses:
+
+```sh
+./scripts/lint
+true-up gate
+```
+
+```sh
+ruff check .
+markdownlint README.md docs
+true-up gate
+```
+
+Run the formatter/linter first when it may rewrite files, then run `true-up status --since <ref>` or
+`true-up gate` so the graph reflects the final file contents. `--policy` and `--externalities` are
+true-up-specific visibility/leak checks; they are intentionally narrower than a general linter.
+
 ### Suppressing a legitimate path example
 
 The leak detectors (`--externalities` machine-local scan and the `--policy`
@@ -159,8 +180,9 @@ Directed edges declared in config, so your content stays pristine — **no inlin
   artifact without a content marker: `{ "from": "meta/contract.json", "to": "lib/engine.mjs",
   "kind": "generated-from", "via": "meta/build-contract.mjs" }`. `true-up run` executes each distinct
   tracked in-repo `via` for stale mechanical dependents; `run --no-write` only reports what would run.
-  JS generators run with Node, shell/Python/Ruby/Perl generators run by extension, and extensionless
-  shebang tools execute directly.
+  Use `true-up --impact <source>` when you need the complete file-level blast radius: it lists every
+  generated dependent, even when many outputs share the same `via`. JS generators run with Node,
+  shell/Python/Ruby/Perl generators run by extension, and extensionless shebang tools execute directly.
 
 A `seed` whose `from`/`to` does not resolve (untracked file, or a fact that doesn't exist) is a **hard
 error** — fail-loud parity with inline anchors, never a silently-dropped edge. Inline `<!-- fact: -->`

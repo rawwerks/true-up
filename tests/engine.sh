@@ -15,6 +15,14 @@ set -uo pipefail
 # incident is why this block exists: neutralize global/system git config (so hooksDir resolves to each
 # throwaway repo's own .git/hooks) and point HOME at a throwaway so nothing reads the dev's real config.
 # NEVER remove this — T32b asserts hooks land INSIDE the test repo, which only holds under isolation.
+# NOTE: the git-hooks safety is enforced by the GIT_CONFIG_* overrides below (they neutralize global +
+# system git config regardless of HOME); the throwaway HOME is defense-in-depth for the dev's dotfiles,
+# NOT the load-bearing part. We capture the pre-isolation HOME first because some `jj` installs are
+# safety WRAPPERS that resolve their real binary relative to $HOME (e.g. $HOME/.local/lib/jj-real) — such
+# a wrapper is non-functional under a throwaway HOME, so the jj probe (below) falls back to this captured
+# HOME for the jj subsuite ONLY. This keeps the repo GENERAL (no machine paths in-tree) while letting the
+# jj tests actually RUN on a machine whose jj is $HOME-relative, instead of spurious-failing.
+ORIG_HOME="$HOME"
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
 export HOME="$(mktemp -d)"
 
@@ -27,10 +35,27 @@ sk(){ printf '  \033[33mSKIP\033[0m %s\n' "$1"; skip=$((skip + 1)); }
 # Optional Tier-2 deps (tree-sitter). Absent on a bare clone → Tier-2 tests SKIP (honest), never FAIL.
 # Dir check (NOT `require.resolve` — web-tree-sitter is ESM-only, so require.resolve throws even when present).
 HAS_TS=0; { [ -d "$HERE/node_modules/web-tree-sitter" ] && [ -d "$HERE/node_modules/tree-sitter-wasms" ]; } && HAS_TS=1
-HAS_JJ=0; command -v jj >/dev/null 2>&1 && HAS_JJ=1
+# jj capability PROBE (not mere presence): prove a WORKING jj and pick the HOME under which it works.
+# `command -v jj` succeeding does NOT mean jj functions here — a $HOME-relative jj wrapper fails under the
+# throwaway HOME above but works under ORIG_HOME. If jj works nowhere (absent, or broken everywhere) we
+# SKIP — a broken/absent jj must NEVER spurious-FAIL the suite (that would falsely block `npm run ci` /
+# publish; the engine's jj paths are also exercised directly). Incident: a local jj wrapper hardcoded
+# $HOME/.local/lib/jj-real, so the isolated-HOME run failed `jj git init` and FAILED 9 jj tests on a
+# machine where jj is actually fine — this probe is the "never again" guard.
+jj_works(){ local d; d="$(mktemp -d)"; if HOME="$1" jj git init --no-colocate "$d" >/dev/null 2>&1 && [ -d "$d/.jj" ]; then rm -rf "$d"; return 0; fi; rm -rf "$d"; return 1; }
+HAS_JJ=0; JJ_HOME="$HOME"; JJ_SKIP="jj binary not installed"
+if command -v jj >/dev/null 2>&1; then
+  if   jj_works "$HOME";      then HAS_JJ=1; JJ_HOME="$HOME"
+  elif jj_works "$ORIG_HOME"; then HAS_JJ=1; JJ_HOME="$ORIG_HOME"
+  else JJ_SKIP="jj present but non-functional under test isolation (e.g. a \$HOME-relative wrapper)"; fi
+fi
+# Hermetic jj identity (HOME-independent via JJ_CONFIG, which jj honors over all config files): commits in
+# the jj subsuite need user.name/email — pin a throwaway identity so the suite is deterministic and never
+# depends on (or writes to) the dev's personal jj config, on any machine.
+JJCFG="$(mktemp)"; printf '[user]\nname = "true-up tests"\nemail = "tests@true-up.invalid"\n' > "$JJCFG"; export JJ_CONFIG="$JJCFG"
 
 FIX="$(mktemp -d)"; H=""; C=""; CG=""; P=""; E=""; V=""; M=""; S=""; Y=""; Z=""; G=""; K=""; SD=""; MG=""; JJO=""; JJC=""
-trap 'rm -rf "$FIX" "$H" "$C" "$CG" "$P" "$E" "$V" "$M" "$S" "$Y" "$Z" "$G" "$K" "$SD" "$MG" "$JJO" "$JJC"' EXIT
+trap 'rm -rf "$FIX" "$H" "$C" "$CG" "$P" "$E" "$V" "$M" "$S" "$Y" "$Z" "$G" "$K" "$SD" "$MG" "$JJO" "$JJC" "$JJCFG"' EXIT
 
 # --- synthesize a target repo: steward data + a generated view + an anchored doc + a symlink ---
 git -C "$FIX" init -q
@@ -607,6 +632,41 @@ js="$($TU --repo "$ST" status --json 2>/dev/null)"; printf '%s' "$js" | node -e 
 # T65 — `build` verb persists the graph (explicit, discoverable alias of bare true-up)
 $TU --repo "$ST" build >/dev/null 2>&1; rc=$?; { [ "$rc" -eq 0 ] && [ -f "$ST/.true-up/depgraph.json" ]; } && ok "build verb persists the graph" || no "build must persist (rc=$rc)"
 
+# T65b..f — NEW-USER ONBOARDING regressions (v0.1.3). Provenance: a 3-agent new-user onboarding workflow
+# found that `status` (the advertised first command) said "GREEN ✓ (nothing to do)" on an un-wired
+# (INERT) graph — telling a brand-new adopter they were DONE while the tool tracked nothing. These pin
+# the fix: an inert graph is an ORIENTATION state that routes to the wire-up recipe, never a false green.
+# (capture-then-grep, not pipe-through: status exits 0, but keep the harness's no-pipe-through-gate rule.)
+# T65b — built + clean + INERT must NOT claim GREEN; it must route to wiring (the load-bearing fix).
+out="$($TU --repo "$ST" status 2>&1)"
+{ echo "$out" | grep -q 'TRACKING NOTHING' && ! echo "$out" | grep -q 'GREEN ✓ (nothing to do)'; } && ok "status on a built INERT graph does NOT say GREEN — routes to wiring" || no "inert status must not claim GREEN/nothing-to-do"
+js="$($TU --repo "$ST" status --json 2>/dev/null)"
+printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const nc=d.nextCommands.join("\n");process.exit(d.tracking===false&&d.green===false&&d.graph.declaredEdges===0&&!d.nextCommands.includes("(green — nothing to do)")&&/seed|robot-docs|declare/.test(nc)?0:1)' && ok "status --json (inert): green=false + tracking=false + nextCommands routes to wiring (structured agrees with text)" || no "status --json inert must report green=false + route to wiring"
+# T65c — an auto-detected symlink edge must NOT mask an un-wired repo (declaredEdges excludes symlink basis).
+SY="$(mktemp -d)"; git -C "$SY" init -q
+printf 'd\n' > "$SY/doc.md"; ln -s doc.md "$SY/link.md"; git -C "$SY" add -A && git -C "$SY" -c user.email=t@t -c user.name=t commit -qm i
+js="$($TU --repo "$SY" status --json 2>/dev/null)"
+printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.graph.edges>=1&&d.graph.declaredEdges===0&&d.tracking===false?0:1)' && ok "symlink-only repo stays INERT (auto symlink edge does not mask an un-wired repo)" || no "symlink must not flip tracking true"
+# build/graph --json expose the SAME tracking signal as status (structured consumers see it too).
+bj="$($TU --repo "$SY" --no-write --json 2>/dev/null)"
+printf '%s' "$bj" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.edges>=1&&d.declaredEdges===0&&d.tracking===false?0:1)' && ok "build --json exposes declaredEdges/tracking (symlink-only ⇒ tracking=false)" || no "build --json must expose tracking signal"
+# T65d — once a REAL edge is wired, status returns to a normal GREEN verdict (no false onboarding alarm).
+WI="$(mktemp -d)"; git -C "$WI" init -q
+printf '{"facts":{"data.json":[["items","id"]]},"zones":[{"path":"","visibility":"public","audience":"world","intent":"p","rules":[]}],"seed":[{"from":"doc.md","to":"data.json#items.a","kind":"derives-facts-from"}]}' > "$WI/.true-up.json"
+printf '{"items":[{"id":"a","v":1}]}' > "$WI/data.json"; printf 'a <!-- fact: data.json#items.a -->\n' > "$WI/doc.md"
+$TU --repo "$WI" build >/dev/null 2>&1; git -C "$WI" add -A && git -C "$WI" -c user.email=t@t -c user.name=t commit -qm i
+js="$($TU --repo "$WI" status --json 2>/dev/null)"
+printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.tracking===true&&d.graph.declaredEdges>=1&&d.green===true?0:1)' && ok "wired repo: status tracking=true + GREEN (no false onboarding alarm)" || no "wired repo must read tracking/green"
+# T65e — init scaffolds a copy-paste _seed_example and points to the IN-TOOL robot-docs (NOT docs/CONFIG.md, which an adopter's repo lacks).
+IN="$(mktemp -d)"; git -C "$IN" init -q; printf 'x\n' > "$IN/f"; git -C "$IN" add -A && git -C "$IN" -c user.email=t@t -c user.name=t commit -qm i
+initout="$($TU --repo "$IN" init 2>&1)"
+{ echo "$initout" | grep -q 'robot-docs' && ! echo "$initout" | grep -q 'docs/CONFIG.md'; } && ok "init message points to in-tool robot-docs, not the dead docs/CONFIG.md breadcrumb" || no "init must point to robot-docs"
+node -e 'const c=require("'"$IN"'/.true-up.json");process.exit(c._seed_example&&c._seed_example.from&&c._seed_example.to&&c._seed_example.kind==="derives-facts-from"?0:1)' && ok "init scaffolds a _seed_example edge showing the shape" || no "init must scaffold _seed_example"
+$TU --repo "$IN" --no-write >/dev/null 2>&1 && ok "scaffold with _seed_example builds cleanly (unknown key ignored, not fatal)" || no "_seed_example must not break build"
+# T65f — build INERT NOTICE points to robot-docs (in-tool), not the dead docs/CONFIG.md breadcrumb.
+nb="$($TU --repo "$IN" 2>&1)"
+{ echo "$nb" | grep -q 'NOTICE' && echo "$nb" | grep -q 'robot-docs' && ! echo "$nb" | grep -q 'docs/CONFIG.md'; } && ok "build INERT NOTICE points to robot-docs, not docs/CONFIG.md" || no "build NOTICE breadcrumb must be in-tool"
+
 # T66 — `robot-docs`: in-tool handbook, works OUTSIDE a git repo (like --help), writes nothing.
 ND2="$(mktemp -d)"; out="$(cd "$ND2" && $TU robot-docs 2>&1)"; rc=$?
 { [ "$rc" -eq 0 ] && echo "$out" | grep -q 'true-up status' && echo "$out" | grep -q 'true-up graph --json' && echo "$out" | grep -Fq '"seed": [{' && echo "$out" | grep -q '"from": "doc.md"' && echo "$out" | grep -q '"generated-from"' && [ -z "$(ls -A "$ND2")" ]; } && ok "robot-docs prints a handbook outside a repo + graph/seed/generated examples + writes nothing" || no "robot-docs must work anywhere + include graph/seed/generated examples + write nothing (rc=$rc)"
@@ -717,6 +777,8 @@ echo "$ihelp" | grep -qE 'set -euo pipefail|^REPO_SLUG=|umask |shopt -s' && no "
 # Git plumbing; these tests pin the jj-only adapter surface directly.
 # ============================================================================
 if [ "$HAS_JJ" = 1 ]; then
+  export HOME="$JJ_HOME"   # run the jj subsuite under the HOME where jj actually works (see probe above);
+                           # git-hooks safety is unaffected (GIT_CONFIG_* overrides neutralize it regardless).
   JJO="$(mktemp -d)"
   jj git init --no-colocate "$JJO" >/dev/null 2>&1
   cat > "$JJO/.true-up.json" <<'JSON'
@@ -763,7 +825,7 @@ JSON
   jj -R "$JJC" commit -m init --no-pager >/dev/null 2>&1
   $TU --repo "$JJC" --check --committed >/dev/null 2>&1 && ok "colocated jj: existing Git-backed behavior still passes" || no "colocated jj regression"
 else
-  sk "jj-only VCS conformance (jj binary not installed)"
+  sk "jj-only VCS conformance ($JJ_SKIP)"
 fi
 
 echo

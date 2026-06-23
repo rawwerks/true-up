@@ -35,6 +35,25 @@ A self-dogfood patch for release and agent guidance. No breaking changes.
 - The default graph file universe now includes tracked ignore/lock artifacts such as `.gitignore` and
   `bun.lock`, so release and cache-policy surfaces can participate in the graph.
 
+### Fixed
+- **New-user onboarding: `status` no longer reports "GREEN ✓ (nothing to do)" on an un-wired graph.**
+  A freshly-`init`'d repo with no declared edges is *tracking nothing*, not done — `status` now shows a
+  distinct orientation verdict ("SET UP — but TRACKING NOTHING yet") and its `next:` / `--json`
+  `nextCommands` lead with the wire-up recipe (`init` → declare a `seed` edge → `robot-docs`). `status`
+  also exposes `tracking` and `graph.declaredEdges`. (Found by a 3-agent new-user onboarding simulation:
+  agents who followed the advertised first command were misled into a false "done".)
+- **An incidental symlink no longer masks an un-wired repo.** Inert/“tracking” is keyed on
+  declared/anchored/generator edges, so an auto-detected `alias-of` symlink can't flip `status` to green
+  or suppress the build INERT NOTICE.
+- **`init` ships a copy-paste `_seed_example`** edge in the scaffold, and `init`/the build INERT NOTICE/
+  the SEED-ERROR message now point to the in-tool `true-up robot-docs` instead of `docs/CONFIG.md` (a
+  file an adopting repo does not have — a dead breadcrumb).
+- **Clearer guidance:** `robot-docs` and the SEED-ERROR text now state that a scalar JSON value (e.g.
+  `package.json#version`) is not fact-addressable (depend on the whole file or anchor a span); `--check`
+  failures name how to see what's affected (`--impact --since`); a bare `true-up` on a config-less repo
+  notes that it built with defaults and points to `init`; `SKILL.md` leads with the on-PATH `true-up`
+  form (npm install) and labels `node bin/true-up` the from-clone fallback.
+
 ## [0.1.2] - 2026-06-22
 
 A compatibility patch for real-world committed-graph and Jujutsu workspaces. No breaking changes.

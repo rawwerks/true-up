@@ -20,6 +20,27 @@ step() { printf '\n\033[1m[%s]\033[0m %s\n' "$1" "$2"; }
 fail() { printf '\033[31mCI FAILED:\033[0m %s\n' "$1" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
+# GENUINE-NODE PIN (machine-robustness — stays general, hardcodes no paths): npm's CLI is
+# `#!/usr/bin/env node`, so if the first `node` on PATH is a NON-Node shim (e.g. a `.bun/bin/node`
+# symlink to Bun, or Deno's node compat), `npm install`/`npm publish` crash deep in npm internals —
+# observed here as `mod.require is not a function`. The PUBLISHED package is unaffected; this only bites
+# the local release gate (and a from-this-shell `npm publish`). So pin the FIRST genuine Node.js already
+# on PATH (or $TRUE_UP_NODE) ahead of any shim for the rest of this script — we don't install anything,
+# we just prefer a real `node` the user already has. Fail loud if none exists (better than a cryptic
+# mid-pack crash — Axiom 14). "never again": a Bun-as-node PATH shadow silently red-failed this gate.
+is_genuine_node(){ [ -n "$1" ] && [ -x "$1" ] && "$1" -e 'process.exit(process.versions.bun||process.versions.deno?1:0)' >/dev/null 2>&1; }
+pick_genuine_node(){
+  if [ -n "${TRUE_UP_NODE:-}" ] && is_genuine_node "$TRUE_UP_NODE"; then printf '%s\n' "$TRUE_UP_NODE"; return 0; fi
+  local n; while IFS= read -r n; do is_genuine_node "$n" && { printf '%s\n' "$n"; return 0; }; done < <(type -aP node 2>/dev/null)
+  return 1
+}
+if ! is_genuine_node "$(command -v node 2>/dev/null)"; then
+  NODE_BIN="$(pick_genuine_node)" || fail "the first \`node\` on PATH is a non-Node shim (e.g. Bun) and no genuine Node.js was found — npm's CLI runs under \`env node\` and will crash. Install Node >=18 or set TRUE_UP_NODE=/path/to/real/node, then re-run."
+  PATH="$(cd "$(dirname "$NODE_BIN")" && pwd):$PATH"; export PATH
+  step "node" "pinned genuine Node.js for the gate (a non-Node \`node\` shim was first on PATH): $NODE_BIN ($("$NODE_BIN" -v 2>/dev/null))"
+fi
+
+# ---------------------------------------------------------------------------
 # Self-bootstrap: the Tier-2 symbol tests need the OPTIONAL tree-sitter devDeps. On a fresh clone they're
 # absent — `npm test` would SKIP Tier-2 (honest, still green), but the release trust anchor must run the
 # FULL suite. Install once if missing (pinned versions, no surprise upgrades). Makes `npm run ci` on a
@@ -117,9 +138,22 @@ for f in package/workflows/README.md package/workflows/maintenance.workflow.js p
 done
 
 # ---------------------------------------------------------------------------
-step "8/8" "version coherence — package.json == CHANGELOG top"
+step "8/8" "version coherence — package.json == CHANGELOG top, and (on publish) HEAD is tagged"
 PKG_VER="$(node -p 'require("./package.json").version')"
 CHANGE_VER="$(grep -m1 -E '^## \[' CHANGELOG.md | sed -E 's/^## \[([^]]+)\].*/\1/')"
 [ "$PKG_VER" = "$CHANGE_VER" ] || fail "version mismatch: package.json=$PKG_VER CHANGELOG=$CHANGE_VER"
+# TAG COHERENCE: a publish must come from a HEAD tagged v$PKG_VER, so the published bytes map to a real
+# release commit (the prior gate checked only package.json==CHANGELOG and could not catch an untagged
+# publish — audit finding). HARD-FAIL under prepublishOnly (the actual publish path); WARN on a manual
+# `npm run ci` so pre-tag dev validation still works. (Run from a Git checkout; skip if no git.)
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  if git tag --points-at HEAD 2>/dev/null | grep -qx "v$PKG_VER"; then
+    :
+  elif [ "${npm_lifecycle_event:-}" = "prepublishOnly" ]; then
+    fail "publish blocked: HEAD is not tagged v$PKG_VER — create it first (annotated, like the prior tags): git tag -a v$PKG_VER -m v$PKG_VER"
+  else
+    printf '\033[33m  ⚠ HEAD is not tagged v%s\033[0m — fine for local validation, but REQUIRED before `npm publish` (prepublishOnly will block).\n' "$PKG_VER" >&2
+  fi
+fi
 
 printf '\n\033[32m✓ Local CI passed\033[0m — fixtures + self-gate + contract + pack + clean-sandbox install + lean core + run-from-tarball + real gate + tarball hygiene + version coherence (v%s). Remaining release actions: final commit/tag, registry preflight, npm publish with credentials, then safe-push if authorized.\n' "$PKG_VER"

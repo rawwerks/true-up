@@ -18,13 +18,14 @@ fact-level granularity) and computes — without guessing — what a change make
 
 ## Adopt it in a repo (one-time)
 
-1. Scaffold a starter config: `node bin/true-up --repo <target-repo> init` writes a `.true-up.json`
-   at the repo root (idempotent — re-running on an existing config is a no-op and still exits 0; it
-   never overwrites). Then edit it to declare your
+1. Scaffold a starter config: `true-up init` writes a `.true-up.json` at the repo root (idempotent —
+   re-running on an existing config is a no-op and still exits 0; it never overwrites). The scaffold
+   ships a commented `_seed_example` showing the edge shape. Then edit it to declare your
    **stewards** (source-of-truth data files to decompose into facts), **zones** (per-path
    visibility/intent + rules), and declared **seed** edges. Use `seed` when the dependency should
    live in config instead of an inline marker: `{ "from": "doc.md", "to": "src/app.py#parse_config",
-   "kind": "derives-facts-from" }`. See the tool's `docs/CONFIG.md`.
+   "kind": "derives-facts-from" }`. For the full wire-up recipe (file- vs fact-granular, span anchors,
+   generated-from), run `true-up robot-docs` — the in-tool handbook.
 2. Add fact-anchors where a doc cites a specific fact: `<!-- fact: <path>#<key> -->`. The `<key>` is a
    JSON `<arrayProp>.<key>`, a span-anchor `id`, or a tree-sitter symbol name (see "Code as a
    source-of-truth").
@@ -34,7 +35,15 @@ fact-level granularity) and computes — without guessing — what a change make
 
 ## Invoking the tool
 
-true-up is not on PATH after a clone. Run it cross-repo by pointing it at the target:
+If you installed from npm (`npm i -g true-up`, or run it via `npx true-up`), the `true-up` command is
+on your PATH — run it directly inside your repo:
+
+```sh
+true-up [command]                        # run inside the target repo
+true-up --repo <target-repo> [command]   # or point it at another repo
+```
+
+From a bare clone (not npm-installed), there is no `true-up` on PATH — invoke the entry directly:
 
 ```sh
 node bin/true-up --repo <target-repo> [command]

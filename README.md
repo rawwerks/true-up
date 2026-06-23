@@ -9,7 +9,6 @@ made stale, regenerates the mechanical parts, and hands you a short list of the 
 LLM guessing. No service. No database.
 
 [![npm](https://img.shields.io/npm/v/true-up)](https://www.npmjs.com/package/true-up)
-[![CI](https://github.com/rawwerks/true-up/actions/workflows/true-up.yml/badge.svg)](https://github.com/rawwerks/true-up/actions/workflows/true-up.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![node](https://img.shields.io/node/v/true-up)](https://nodejs.org)
 
@@ -241,9 +240,9 @@ which documents derive from those facts and from one another:
 - `SKILL.md` is the loadable external-agent skill and derives from `README.md`, `docs/CONFIG.md`,
   `.true-up.json`, the workflow overview, and the generated contract.
 - `AGENTS.md` is for maintainer agents and derives from the external docs plus the engine, harness,
-  release, workflow, and CI surfaces it summarizes.
+  release, workflow, and local-CI surfaces it summarizes.
 - `PUBLISHING.md` is for credentialed release agents and derives from package metadata, lockfile,
-  changelog, installer, local CI, and the GitHub Actions mirror.
+  changelog, installer, and the local CI trust anchor.
 - `docs/CONFIG.md` is the adopter/config reference and derives from the engine behavior,
   configuration examples, `.true-up.json`, `.gitignore`, and the agent-guidance contract fact it teaches.
 

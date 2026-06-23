@@ -9,7 +9,7 @@ The trust anchor is the local CI — **`npm run ci`** ([`scripts/ci.sh`](scripts
 whole chain and exits nonzero on any failure: fixture suite + self-gate + contract `--check` + `npm pack`
 + clean-sandbox install of the tarball + lean check (tree-sitter NOT auto-pulled) + run-from-tarball
 (build/`--check`/`gate`/`--no-write`/`capabilities`) + a negative gate check + tarball hygiene + version
-coherence. It is **not** dependent on GitHub Actions (that workflow only mirrors this command).
+coherence. There is no hosted CI gate for this repo; the release proof is local by design.
 
 ## Preflight (all must hold — abort if any fails)
 

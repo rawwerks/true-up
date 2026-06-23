@@ -1,5 +1,5 @@
 {
-  "_comment": "true-up trues up ITSELF, MARKER-FREE. The command and agent-guidance surfaces are generated to meta/contract.json (steward) by `node meta/build-contract.mjs` from `true-up capabilities`; docs that restate them derive-facts-from those facts via `seed` below. The repo also declares document audiences and doc/code/release/CI dependencies that no parser can infer. Change a command contract -> `true-up --impact meta/contract.json#commands.<name>`; change agent guidance -> `true-up --impact meta/contract.json#agent_guidance.<name>`; inspect the whole case study with `true-up graph --json`. The public-surface zone keeps machine-local paths out.",
+  "_comment": "true-up trues up ITSELF, MARKER-FREE. The command and agent-guidance surfaces are generated to meta/contract.json (steward) by `node meta/build-contract.mjs` from `true-up capabilities`; docs that restate them derive-facts-from those facts via `seed` below. The repo also declares document audiences and doc/code/release/local-CI dependencies that no parser can infer. Change a command contract -> `true-up --impact meta/contract.json#commands.<name>`; change agent guidance -> `true-up --impact meta/contract.json#agent_guidance.<name>`; inspect the whole case study with `true-up graph --json`. The public-surface zone keeps machine-local paths out.",
   "facts": {
     "meta/contract.json": [["commands", "name"], ["agent_guidance", "name"]]
   },
@@ -17,7 +17,6 @@
     { "path": "package.json", "visibility": "public", "audience": "release-agents-and-package-managers", "intent": "npm-manifest", "rules": ["no-machine-local-paths"] },
     { "path": "bun.lock", "visibility": "public", "audience": "release-agents-and-package-managers", "intent": "dependency-lockfile", "rules": ["no-machine-local-paths"] },
     { "path": ".gitignore", "visibility": "public", "audience": "maintainer-agents", "intent": "repository-ignore-rules", "rules": ["no-machine-local-paths"] },
-    { "path": ".github/workflows/", "visibility": "public", "audience": "ci-maintainers", "intent": "ci-mirror-of-local-trust-anchor", "rules": ["no-machine-local-paths"] },
     { "path": "scripts/ci.sh", "visibility": "public", "audience": "release-agents-and-maintainers", "intent": "local-ci-trust-anchor", "rules": ["no-machine-local-paths"] },
     { "path": "tests/engine.sh", "visibility": "public", "audience": "maintainer-agents", "intent": "regression-harness", "rules": ["no-machine-local-paths"] },
     { "path": "lib/", "visibility": "public", "audience": "maintainer-agents", "intent": "engine-source", "rules": ["no-machine-local-paths"] },
@@ -82,7 +81,6 @@
     { "from": "AGENTS.md", "to": "lib/symbols.mjs", "kind": "derives-facts-from" },
     { "from": "AGENTS.md", "to": "tests/engine.sh", "kind": "derives-facts-from" },
     { "from": "AGENTS.md", "to": "scripts/ci.sh", "kind": "derives-facts-from" },
-    { "from": "AGENTS.md", "to": ".github/workflows/true-up.yml", "kind": "derives-facts-from" },
     { "from": "AGENTS.md", "to": "PUBLISHING.md", "kind": "derives-facts-from" },
     { "from": "AGENTS.md", "to": "package.json", "kind": "derives-facts-from" },
     { "from": "AGENTS.md", "to": "workflows/README.md", "kind": "derives-facts-from" },
@@ -93,13 +91,11 @@
     { "from": "PUBLISHING.md", "to": "bun.lock", "kind": "derives-facts-from" },
     { "from": "PUBLISHING.md", "to": "CHANGELOG.md", "kind": "derives-facts-from" },
     { "from": "PUBLISHING.md", "to": "scripts/ci.sh", "kind": "derives-facts-from" },
-    { "from": "PUBLISHING.md", "to": ".github/workflows/true-up.yml", "kind": "derives-facts-from" },
     { "from": "PUBLISHING.md", "to": "install.sh", "kind": "derives-facts-from" },
 
     { "from": "CHANGELOG.md", "to": "package.json", "kind": "derives-facts-from" },
     { "from": "CHANGELOG.md", "to": "meta/contract.json", "kind": "derives-facts-from" },
 
-    { "from": ".github/workflows/true-up.yml", "to": "scripts/ci.sh", "kind": "derives-facts-from" },
     { "from": "scripts/ci.sh", "to": "package.json", "kind": "derives-facts-from" },
     { "from": "scripts/ci.sh", "to": "tests/engine.sh", "kind": "derives-facts-from" },
     { "from": "scripts/ci.sh", "to": "meta/build-contract.mjs", "kind": "derives-facts-from" },

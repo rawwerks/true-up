@@ -20,7 +20,6 @@ docs/CONFIG.md     the .true-up.json schema + the marker/anchor conventions
 examples/          an example .true-up.json
 meta/build-contract.mjs  generates meta/contract.json from `true-up capabilities`; --check gates engine→contract drift
 meta/contract.json the command + agent-guidance STEWARD (generated, committed) — true-up trues itself against it
-.github/workflows/true-up.yml  CI: npm test (fixtures + self-gate) + meta/build-contract.mjs --check
 workflows/         external-agent maintenance/audit workflow templates; shipped in npm because SKILL.md links them
 package.json       npm allowlist + optional tree-sitter peer/dev deps (EXACT-pinned, Tier 2 only); posttest = self-gate
 .true-up.json      true-up's own config — it trues up ITSELF, MARKER-FREE (steward + sidecar seed; see "Self-dogfood")
@@ -113,7 +112,7 @@ files** (every edge is a sidecar `seed`). The wiring:
   (`HELP`, `ROBOT_DOCS`, and `capabilities`). `meta/build-contract.mjs` generates `meta/contract.json`
   (a committed steward, one fact per command plus explicit `agent_guidance` facts) from
   `true-up capabilities`. `meta/build-contract.mjs --check` is the **engine→contract drift gate**
-  (fails if the steward is stale vs the engine) — run in `npm test` posttest AND CI. The generated
+  (fails if the steward is stale vs the engine) — run in `npm test` posttest and local CI. The generated
   steward is also modeled as a marker-free **mechanical** seed edge (`kind: generated-from`, `via:
   meta/build-contract.mjs`) from `bin/true-up`, `lib/engine.mjs`, and the generator itself.
 - **Docs → contract (marker-free).** `.true-up.json` `seed` declares the dependency: `README.md`
@@ -133,20 +132,20 @@ files** (every edge is a sidecar `seed`). The wiring:
 - **Documents depend on documents.** The seed graph also models semantic prose dependencies that no
   parser can infer: `README.md` derives its config summary from `docs/CONFIG.md`; `SKILL.md` derives
   from `README.md`, `docs/CONFIG.md`, `.true-up.json`, and the workflow overview; `AGENTS.md` derives
-  from the user/agent docs plus the engine, harness, release, workflow, and CI surfaces it summarizes;
-  `PUBLISHING.md` derives from package metadata, lockfile, changelog, installer, local CI, and the
-  GitHub Actions mirror. This is intentional "more than AST" truth — if a source document changes,
+  from the user/agent docs plus the engine, harness, release, workflow, and local-CI surfaces it summarizes;
+  `PUBLISHING.md` derives from package metadata, lockfile, changelog, installer, and local CI.
+  This is intentional "more than AST" truth — if a source document changes,
   `true-up --impact <doc>` should name the dependent artifact audiences that need review.
 - **Probe the case study directly.** `true-up --impact meta/contract.json#agent_guidance.declared-seed-edge`
   should name the docs that teach marker-free `seed` edges, and `true-up graph --json` should show the
   full audience/dependency map with zero `anchored`/`generator` self-edges. Tests T74/T75 pin this.
-- **The tool gates itself.** `npm test` posttest runs `true-up gate` (`--check` + `--policy` +
-  `--externalities`) on true-up's own repo; CI (`.github/workflows/true-up.yml`) runs `npm test` +
-  `meta/build-contract.mjs --check`. The read-only invariant (Load-bearing invariant 8) means this is
-  safe — gating never edits content.
+- **The tool gates itself locally.** `npm test` posttest runs `true-up gate` (`--check` + `--policy` +
+  `--externalities`) on true-up's own repo, and `npm run ci` is the release trust anchor: fixture suite,
+  self-gate, contract check, pack, clean-sandbox install, tarball run, negative gate, hygiene, and version
+  coherence. There is intentionally no hosted GitHub Actions mirror for this repo.
 - **When you add/rename/change a command:** regenerate the steward (`npm run contract`), and if it's a
-  new command, add its `seed` line(s) so its doc-drift is tracked. CI's `--check` will remind you if you
-  forget to regenerate.
+  new command, add its `seed` line(s) so its doc-drift is tracked. The local `npm run ci` gate will remind
+  you if you forget to regenerate.
 
 ### Durable lessons from the telltail dogfooding round
 

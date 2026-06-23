@@ -24,13 +24,13 @@ A self-dogfood patch for release and agent guidance. No breaking changes.
 - **Marker-example suppression for fixtures.** `true-up:ignore-file true-up-markers` lets test fixtures
   quote true-up marker syntax while the file remains a normal graph node.
 - **Release handoff is in the self-graph.** `PUBLISHING.md` now has its own release-agent audience and
-  declared dependencies on package metadata, changelog, local CI, and the GitHub Actions mirror.
+  declared dependencies on package metadata, changelog, installer, and the local CI trust anchor.
 - **External-agent workflows ship with the package.** The npm allowlist now includes `workflows/` so
   `SKILL.md` links to the maintenance/audit templates are valid from the published tarball.
 
 ### Changed
 - **true-up is a stronger case study for itself.** `.true-up.json` now models document audiences and
-  prose/code/release/CI dependencies for README, SKILL, AGENTS, CONFIG, PUBLISHING, workflows, local CI,
+  prose/code/release/local-CI dependencies for README, SKILL, AGENTS, CONFIG, PUBLISHING, workflows,
   and the generated contract; the harness asserts those edges and the README command-fact coverage.
 - The default graph file universe now includes tracked ignore/lock artifacts such as `.gitignore` and
   `bun.lock`, so release and cache-policy surfaces can participate in the graph.
@@ -83,7 +83,7 @@ README. This release fixes the rot and makes the whole class of doc/marker drift
 ### Fixed
 - Removed `status --committed` from the contract's `cmd_flags` — `status` never read it.
 
-### Added — six deterministic doc/marker-drift gates (tests/engine.sh, in `npm test` + CI)
+### Added — six deterministic doc/marker-drift gates (tests/engine.sh, in `npm test` + local CI)
 - **docs-in-sync** (every `capabilities` command documented in README + SKILL), **flag-coverage**
   (every contract flag documented), **no-stale-init** (proves idempotency, then forbids the exit-1
   claim), **no-jargon** (no Tier/Axiom in user docs or installer `--help`), **no-source-leak**
@@ -159,7 +159,7 @@ Every fix ships with a regression test (`tests/engine.sh` T40–T72).
 - `curl | bash` `install.sh` (zero-dep Node tool; `--with-symbols`; `--uninstall`)
   ([`dc429fc`](https://github.com/rawwerks/true-up/commit/dc429fc)).
 - true-up **dogfoods itself, marker-free**: the command surface is generated to a `meta/contract.json`
-  steward, the docs derive from it via sidecar `seed`, and `npm test` + CI run `true-up gate` on
+  steward, the docs derive from it via sidecar `seed`, and `npm test` + local CI run `true-up gate` on
   true-up's own repo ([`6ddf63d`](https://github.com/rawwerks/true-up/commit/6ddf63d)).
 - MIT licensed ([`b7ef7aa`](https://github.com/rawwerks/true-up/commit/b7ef7aa)).
 

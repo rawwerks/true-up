@@ -4,7 +4,7 @@
 # Tests ARE the harness: one command runs the whole publish-readiness chain and exits
 # nonzero on ANY failure. prepublishOnly invokes this directly, so a broken build cannot publish.
 # Sub-minute (npm test dominates). The fixture suite includes multi-worktree/jj workspace,
-# repo-qualified next-command, inter-repo privacy, and parallel graph-write regressions.
+# repo-qualified next-command, visibility-lattice privacy, inter-repo privacy, and parallel graph-write regressions.
 # Not dependent on GitHub Actions.
 #   Run: npm run ci   (or: bash scripts/ci.sh)
 set -euo pipefail

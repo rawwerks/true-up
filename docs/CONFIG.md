@@ -111,7 +111,8 @@ Mechanical rules enforced by `--policy`:
 - `no-machine-local-paths` — no `/home/<user>`, `/Users/<user>`, or non-canonical `~/` paths
   (canonical `~/.claude`, `~/.config`, `~/.cache` are allowlisted).
 - `must-be-ciphertext` — every file in the zone must be encrypted (no plaintext).
-- `no-public->private-deps` — no dependency edge from a public node into a private path (no-read-down).
+- `no-public->private-deps` — historical rule name: no local dependency edge from a lower-visibility
+  node into a higher-visibility source (`public < internal < private < secret`).
 - `no-public->nonpublic-import` — no public local file may depend on an imported fact exported above
   public visibility.
 

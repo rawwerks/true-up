@@ -71,7 +71,7 @@ true-up export --audience public # emit a one-way inter-repo import snapshot fro
 true-up --verify-scope --since HEAD~1  # anti-code-golf gate (jj-only: --since @-)
 true-up --check                  # stale-graph gate on the ON-DISK graph (exit 1 if it drifted from a fresh build)
 true-up --check --committed      # drift gate on the VCS-stored graph (Git: staged/HEAD; jj-only: @)
-true-up --policy                 # zone/visibility lint (exit 1 on violations; --report = exit 0)
+true-up --policy                 # zone/visibility lint, including lower→higher edges (exit 1 on violations; --report = exit 0)
 true-up --externalities          # machine-local-path leak scan (exit 1 on leaks; --report = exit 0)
 true-up init                     # scaffold a starter .true-up.json (idempotent: no-op + exit 0 if one exists)
 true-up capabilities             # machine-readable contract (commands, flags, exit codes) — always JSON
@@ -202,7 +202,8 @@ private/internal/secret source material to a lower audience, that exact export e
 pins `repoId`/`audience` in `imports`, and seeds local edges to `@alias:fact`.
 
 This is a one-way mirror: the source does not need to know every consumer, and the consumer is fully
-explicit about what crossed the boundary. Public files cannot depend on non-public imports, imported
+explicit about what crossed the boundary. Local dependency edges cannot point from a lower-visibility
+node to a higher-visibility source; public files cannot depend on non-public imports, imported
 generators never run, non-public import taint cannot be re-exported to a lower audience, public
 snapshots reject commit ids/raw values/private paths/arbitrary taint fields, and symlinked import
 snapshots are rejected.

@@ -252,6 +252,42 @@ $TU --repo "$M" --policy --report 2>&1 | grep -q 'must-be-ciphertext' && ok "mus
 printf '%s\n' 'data: ENC[AES256_GCM,data:Zm9v,iv:YmFy,tag:YmF6,type:str]' 'sops:' '    mac: ENC[AES256_GCM,data:abc,type:str]' > "$M/private/notes.md"
 $TU --repo "$M" --policy --report 2>&1 | grep -q 'must-be-ciphertext' && no "real ENC[…] ciphertext must pass must-be-ciphertext" || ok "real ENC[…] ciphertext passes must-be-ciphertext"
 
+# T21b — local dependency privacy uses the declared visibility lattice, not path names.
+LAT="$(mktemp -d)"; git -C "$LAT" init -q; mkdir -p "$LAT/internal" "$LAT/secret"
+printf '%s\n' '# public' > "$LAT/README.md"
+printf '%s\n' '# internal memo' > "$LAT/internal/memo.md"
+printf '%s\n' '# secret plan' > "$LAT/secret/plan.md"
+cat > "$LAT/.true-up.json" <<'JSON'
+{
+  "zones": [
+    { "path": "secret/", "visibility": "secret", "audience": "restricted", "intent": "secret", "rules": [] },
+    { "path": "internal/", "visibility": "internal", "audience": "team", "intent": "internal", "rules": [] },
+    { "path": "", "visibility": "public", "audience": "world", "intent": "public", "rules": [] }
+  ],
+  "seed": [
+    { "from": "README.md", "to": "secret/plan.md", "kind": "derives-facts-from" },
+    { "from": "internal/memo.md", "to": "secret/plan.md", "kind": "derives-facts-from" }
+  ]
+}
+JSON
+git -C "$LAT" add -A && git -C "$LAT" -c user.email=t@t -c user.name=t commit -qm init
+out="$($TU --repo "$LAT" --policy --json 2>/dev/null)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const details=d.violations.map(v=>v.rule+" "+v.detail).join("\n");process.exit(details.includes("no-public->private-deps")&&details.includes("public -> secret")&&details.includes("internal -> secret")?0:1)'; } && ok "policy: local dependency edges enforce public<internal<private<secret lattice" || no "policy must block lower-visibility local nodes depending on higher-visibility sources"
+LAT_OK="$(mktemp -d)"; git -C "$LAT_OK" init -q; mkdir -p "$LAT_OK/secret"
+printf '%s\n' '# public source' > "$LAT_OK/README.md"
+printf '%s\n' '# secret dependent' > "$LAT_OK/secret/summary.md"
+cat > "$LAT_OK/.true-up.json" <<'JSON'
+{
+  "zones": [
+    { "path": "secret/", "visibility": "secret", "audience": "restricted", "intent": "secret", "rules": [] },
+    { "path": "", "visibility": "public", "audience": "world", "intent": "public", "rules": [] }
+  ],
+  "seed": [ { "from": "secret/summary.md", "to": "README.md", "kind": "derives-facts-from" } ]
+}
+JSON
+git -C "$LAT_OK" add -A && git -C "$LAT_OK" -c user.email=t@t -c user.name=t commit -qm init
+$TU --repo "$LAT_OK" --policy >/dev/null 2>&1 && ok "policy: higher-visibility local dependents may derive from lower-visibility sources" || no "policy must allow secret local docs to depend on public sources"
+
 # T22 — ergonomics: --version + capabilities (the machine-readable contract, Axiom 9)
 $TU --repo "$FIX" --version 2>&1 | grep -qE '[0-9]+\.[0-9]+' && ok "--version prints a version" || no "--version must print a version"
 $TU --repo "$FIX" capabilities 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.exit_codes&&d.commands&&d.version?0:1)' && ok "capabilities is valid JSON with version/commands/exit_codes" || no "capabilities must be a valid JSON contract"

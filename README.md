@@ -150,7 +150,7 @@ uniform `ok` boolean.
 | `true-up gate [--committed]` | one CI/pre-commit stage: `--check` + `--policy` + `--externalities` | **1 if any sub-check fails** |
 | `true-up hooks [--install\|--uninstall\|--ci] [--force]` | wire (or remove) Git hooks in a Git-backed repo, or print a CI snippet | 0 (2 if no Git hooks dir) |
 | `true-up export --audience <public\|internal\|private\|secret>` | emit a one-way inter-repo import snapshot from explicit exports | 0 (1 on tainted re-export; 2 on usage/config errors) |
-| `true-up --policy [--report]` | lint files against their declared zone rules (path leaks, visibility) | **1 on violations** (`--report` → 0) |
+| `true-up --policy [--report]` | lint files against their declared zone rules (path leaks, lower→higher visibility edges) | **1 on violations** (`--report` → 0) |
 | `true-up --externalities [--report]` | scan public files for machine-local path leaks (`/home/you/…`) | **1 on leaks** (`--report` → 0) |
 | `true-up --verify-scope [--since <ref>]` | guard: every changed file must be explained by the graph | 1 if an edit is out of scope |
 | `true-up init` | scaffold a starter `.true-up.json` (idempotent — never overwrites) | 0 |
@@ -242,9 +242,10 @@ agreed to mirror:
 ```
 
 There are no live `../other-repo` reads in gates: import paths must stay inside the repo, must be
-tracked/staged, and cannot be symlinks. Imported generator metadata is inert, public files cannot
-depend on non-public imports, non-public import taint blocks re-export to a lower audience, and public
-snapshots reject commit ids, raw values, private paths, and arbitrary taint fields.
+tracked/staged, and cannot be symlinks. Imported generator metadata is inert, local dependency edges
+cannot point from a lower-visibility node to a higher-visibility source, public files cannot depend on
+non-public imports, non-public import taint blocks re-export to a lower audience, and public snapshots
+reject commit ids, raw values, private paths, and arbitrary taint fields.
 
 ## Use it in CI / pre-commit
 
@@ -353,8 +354,8 @@ ruff check . && markdownlint README.md docs && true-up gate
 ```
 
 If a formatter or lint fixer rewrites files, run `true-up status --since <ref>` again afterward. The
-`--policy` and `--externalities` commands are true-up's own visibility/leak checks, not a replacement
-for your project's normal linter.
+`--policy` and `--externalities` commands are true-up's own visibility/leak checks, including local
+lower→higher dependency edges; they are not a replacement for your project's normal linter.
 
 **Is tree-sitter required?** No — it's an optional add-on for symbol extraction. The core and comment
 anchors are zero-dependency.

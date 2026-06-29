@@ -10,11 +10,11 @@ Those branches need a fresh version bump, top changelog release entry, release c
 publishing handoff before any npm publish attempt; do not publish them under the `0.1.4` handoff.
 
 The trust anchor is the local CI — **`npm run ci`** ([`scripts/ci.sh`](scripts/ci.sh)) — which runs the
-whole chain and exits nonzero on any failure: fixture suite, including inter-repo import/export privacy
-regressions + self-gate + contract `--check` + `npm pack` + clean-sandbox install of the tarball + lean
-check (tree-sitter NOT auto-pulled) + run-from-tarball (build/`--check`/`gate`/`--no-write`/
-`capabilities`) + a negative gate check + tarball hygiene + version coherence. There is no hosted CI
-gate for this repo; the release proof is local by design.
+whole chain and exits nonzero on any failure: fixture suite, including visibility-lattice and inter-repo
+import/export privacy regressions + self-gate + contract `--check` + `npm pack` + clean-sandbox install
+of the tarball + lean check (tree-sitter NOT auto-pulled) + run-from-tarball (build/`--check`/`gate`/
+`--no-write`/`capabilities`) + a negative gate check + tarball hygiene + version coherence. There is no
+hosted CI gate for this repo; the release proof is local by design.
 
 ## Preflight (all must hold — abort if any fails)
 

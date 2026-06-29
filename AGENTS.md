@@ -106,7 +106,9 @@ Verify against `lib/engine.mjs` before changing any of this.
    mirrors are allowed; federated live graph reads are not. Public/private boundaries are enforced by
    the visibility lattice (`public < internal < private < secret`), explicit declassification on the
    source side, consumer-side pins, strict snapshot schema, taint propagation, and policy/export gates.
-   Every privacy failure found by adversarial review belongs in `tests/engine.sh`.
+   Local edge privacy checks compare visibility ranks, not literal directory names; a public or internal
+   node deriving from `secret/` must fail even when the path is not `private/`. Every privacy failure
+   found by adversarial review belongs in `tests/engine.sh`.
 
 ## Harness
 

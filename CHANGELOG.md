@@ -19,11 +19,13 @@ Development after `0.1.4` adds the inter-repo snapshot/import surface:
 - **Privacy hardening for public/private boundaries.** Export requires per-entry `declassify: true`
   when crossing from higher-visibility source material to a lower audience. Imports reject path
   escapes, symlinks, untracked snapshots, mismatched identity/audience pins, source paths, commit ids,
-  raw values, executable generator metadata, and malformed taint fields. Non-public import taint
-  propagates through local files/facts and blocks public re-export.
+  raw values, executable generator metadata, and malformed taint fields. Local dependency policy now
+  enforces the full visibility lattice (`public < internal < private < secret`) instead of a path-name
+  heuristic, and non-public import taint propagates through local files/facts and blocks public
+  re-export.
 - **Harness expansion.** The fixture suite now covers the adversarial cases above, including
-  transitive taint, fact-level taint laundering, malformed public snapshots, and imported generator
-  execution.
+  lower-visibility local edges into secret sources, transitive taint, fact-level taint laundering,
+  malformed public snapshots, and imported generator execution.
 
 ## [0.1.4] - 2026-06-23
 

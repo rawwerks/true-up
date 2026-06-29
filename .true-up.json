@@ -45,6 +45,7 @@
     { "from": "README.md", "to": "meta/contract.json#commands.run" },
     { "from": "README.md", "to": "meta/contract.json#commands.gate" },
     { "from": "README.md", "to": "meta/contract.json#commands.hooks" },
+    { "from": "README.md", "to": "meta/contract.json#commands.export" },
     { "from": "README.md", "to": "meta/contract.json#commands.init" },
     { "from": "README.md", "to": "meta/contract.json#commands.capabilities" },
     { "from": "README.md", "to": "meta/contract.json#commands.robot-docs" },

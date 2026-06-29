@@ -12,7 +12,7 @@ internal corpus where it was proven; this repo is the standalone, repo-agnostic 
 
 ```
 bin/true-up        thin CLI entry → lib/engine.mjs
-lib/engine.mjs     the engine: build / --check[ --committed] / --impact / --policy / --externalities / --verify-scope / run / init / capabilities / --version / --help (every read-side cmd takes --json)
+lib/engine.mjs     the engine: build / --check[ --committed] / --impact / --policy / --externalities / --verify-scope / run / export / init / capabilities / --version / --help (every read-side cmd takes --json)
 lib/symbols.mjs    Tier 2 (OPTIONAL): tree-sitter symbol extraction. Static-imported but loads
                    web-tree-sitter LAZILY (only when .true-up.json sets "symbols") — the zero-dep core never touches it
 tests/engine.sh    fixture-based regression harness (synthesizes a target repo, runs the real CLI)
@@ -43,6 +43,7 @@ Verify against `lib/engine.mjs` before changing any of this.
 - `true-up run [--since <ref>] [--strict]` — deterministic truing-up loop; exit 1 if not GREEN (regen failed / policy violations / depgraph stale), exit 2 under `--strict` when GREEN but advisory prose review is still pending. Verify reads the `--policy` child's EXIT CODE, not its stdout.
 - `true-up gate [--committed]` — one CI stage: spawns `--check` (+`--committed`) · `--policy` · `--externalities` as children and exits **1 if ANY fails**, 0 if all pass. `--json` reports per-check status. The exit code is the contract (a runner keys on it). Build the graph first so `--check` is meaningful.
 - `true-up hooks [--install|--uninstall|--ci] [--force]` — Git-backed per-repo adoption: writes/removes executable `pre-commit` + `pre-push` (resolved via `git rev-parse --git-path hooks`, honoring `core.hooksPath`/worktrees) carrying the `managed-by: true-up-hooks` marker; idempotent; backs up a pre-existing foreign hook to `*.bak` **once** (never clobbers an existing `.bak`), and `--uninstall` **restores** that backup. SAFETY: if the resolved hooks dir is **outside this repo's `.git`** (a shared/global `core.hooksPath`), `--install`/`--uninstall` **REFUSE** (exit 2) with a loud message unless `--force` — this prevents silently rewiring every repo on the machine (the incident that overwrote a dev's global hooks during `npm test`; the test harness is now git-config-isolated too). Hooks **fail closed** if `true-up` is absent. `--ci` prints a version-pinned GH Actions snippet. Exit 2 if there is no Git hooks dir. (pre-push too: `jj commit` bypasses pre-commit; non-colocated jj has no Git hooks dir for this command.)
+- `true-up export --audience <public|internal|private|secret>` — emits a one-way inter-repo import snapshot from explicit `.true-up.json` `exports`. The source repo controls the allowlist; crossing from higher-visibility source material to a lower audience requires per-export `"declassify": true`. Consumers must track/stage a regular in-repo snapshot, pin `repoId` and `audience` under `imports`, then seed local advisory edges to `@alias:fact`. No live sibling-repo paths, symlink snapshots, raw values, source paths, commit ids, or executable imported generator metadata are allowed. Non-public import taint propagates through local files/facts and blocks public re-export.
 - `true-up init` — scaffold a starter `.true-up.json`; **idempotent** (exit 0): never overwrites an existing config, and "already scaffolded" is success — exit 1 is reserved for gate violations everywhere else.
 - `true-up capabilities` — machine-readable contract (commands, flags, exit-code dictionary, **`quickstart` task→command map, `entrypoints`, `cmd_flags`** = the live per-command flag map, `error_codes`); always JSON; exit 0. Axiom 9: an agent reads the contract from the tool, not out-of-band.
 - `true-up robot-docs` (alias `--robot-help`) — paste-ready **in-tool agent handbook** (task→command recipes); writes nothing; works outside any repo; exit 0. `capabilities` is the machine CONTRACT, this is the QUICKSTART.
@@ -99,6 +100,13 @@ Verify against `lib/engine.mjs` before changing any of this.
    parallel `.true-up.facts.json` hash sidecar — `--check --committed` already IS the stored-expected-hash
    verify-don't-regenerate gate (the committed graph blob holds every fact's expected hash); a second
    sidecar is a deletion-blind, merge-conflict-prone second source of truth (decision: rejected).
+9. **Inter-repo dependencies are consented snapshots, never live reads.** A repo may depend on another
+   repo's exported facts without the source knowing, but only through a tracked/staged local snapshot
+   whose `repoId` and `audience` are pinned by the consumer. This is intentionally directional: one-way
+   mirrors are allowed; federated live graph reads are not. Public/private boundaries are enforced by
+   the visibility lattice (`public < internal < private < secret`), explicit declassification on the
+   source side, consumer-side pins, strict snapshot schema, taint propagation, and policy/export gates.
+   Every privacy failure found by adversarial review belongs in `tests/engine.sh`.
 
 ## Harness
 
@@ -114,6 +122,10 @@ multi-MB graphs and silently passed the revert. (b) The release **tag-coherence*
 suite exercises the EXACT guard `prepublishOnly` runs (untagged HEAD under `npm_lifecycle_event=prepublishOnly`
 must hard-fail "publish blocked"; a manual run only warns) — the incident it prevents is a nested
 `npm run ci` resetting `npm_lifecycle_event` and downgrading the block to a warn.
+For inter-repo import/export, the harness must stay adversarial: cover path escapes, untracked or
+symlinked snapshots, mismatched `repoId`/`audience`, public→non-public imports, transitive taint,
+taint laundering through local fact extraction, malformed snapshot metadata, declassification, and
+imported generator execution.
 
 ## Self-dogfood (true-up trues up ITSELF, marker-free)
 

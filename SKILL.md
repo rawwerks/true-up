@@ -67,6 +67,7 @@ true-up --impact --since HEAD~1 --proof --json  # audit completed pass: changed 
 true-up run --since HEAD~1       # detect → regenerate mechanical → advisory worklist → verify (jj-only: --since @-)
 true-up gate                     # one CI/pre-commit stage: --check + --policy + --externalities; EXIT 1 on any failure (--json for per-check status)
 true-up hooks --install          # wire a per-repo pre-commit + pre-push gate (--ci prints a CI snippet; --uninstall removes)
+true-up export --audience public # emit a one-way inter-repo import snapshot from explicit exports
 true-up --verify-scope --since HEAD~1  # anti-code-golf gate (jj-only: --since @-)
 true-up --check                  # stale-graph gate on the ON-DISK graph (exit 1 if it drifted from a fresh build)
 true-up --check --committed      # drift gate on the VCS-stored graph (Git: staged/HEAD; jj-only: @)
@@ -191,6 +192,20 @@ and a `seed` to a nonexistent file/fact is a hard error (fail-loud). A code file
 file-granularity **seed** endpoint without any of these. If you declare no
 facts / anchors / symbols / seed, the build prints a NOTICE: the drift layer is inert (it passes
 `--check` trivially) until you give it something to track.
+
+## Inter-repo dependencies
+
+Use snapshots, not live sibling-repo paths. The source repo declares `repoId` and an `exports`
+allowlist, then runs `true-up export --audience public` to stdout. If an export crosses from
+private/internal/secret source material to a lower audience, that exact export entry must include
+`"declassify": true`. The consumer tracks/stages or commits the snapshot as a regular in-repo file,
+pins `repoId`/`audience` in `imports`, and seeds local edges to `@alias:fact`.
+
+This is a one-way mirror: the source does not need to know every consumer, and the consumer is fully
+explicit about what crossed the boundary. Public files cannot depend on non-public imports, imported
+generators never run, non-public import taint cannot be re-exported to a lower audience, public
+snapshots reject commit ids/raw values/private paths/arbitrary taint fields, and symlinked import
+snapshots are rejected.
 
 ## Case study: this repo
 

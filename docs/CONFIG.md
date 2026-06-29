@@ -17,6 +17,12 @@ a present-but-malformed config — unparseable JSON, a wrong-typed `facts`/`zone
   "seed": [
     { "from": "README.md", "to": "data/verdicts.json", "kind": "derives-facts-from" }
   ],
+  "imports": {
+    "payments": { "path": "imports/payments.public.true-up-import.json", "repoId": "payments-service", "audience": "public" }
+  },
+  "exports": [
+    { "id": "api.timeout", "from": "data/verdicts.json#frameworks.ax", "audience": "public" }
+  ],
   "out": ".true-up/depgraph.json"
 }
 ```
@@ -90,7 +96,8 @@ hashes are raw-byte and depend on exact formatting (and, for symbols, the pinned
 ## `zones` — visibility + intent + rules
 
 Each zone matches a path prefix (most-specific wins: exact > `**/suffix` > `dir/` > `""` catch-all)
-and declares `visibility` (public < private < secret), `audience`, an `intent` label, and `rules`.
+and declares `visibility` (`public` < `internal` < `private` < `secret`), `audience`, an `intent`
+label, and `rules`. `visibility` is the enforced lattice and must use one of those four values.
 `audience` is native graph metadata but repo-defined: any string is valid, so use values that make
 sense for your project (`external-users`, `external-agents`, `maintainer-agents`, `release-agents`,
 etc.). true-up does not impose an audience enum; it validates the value is a string and carries it
@@ -105,6 +112,8 @@ Mechanical rules enforced by `--policy`:
   (canonical `~/.claude`, `~/.config`, `~/.cache` are allowlisted).
 - `must-be-ciphertext` — every file in the zone must be encrypted (no plaintext).
 - `no-public->private-deps` — no dependency edge from a public node into a private path (no-read-down).
+- `no-public->nonpublic-import` — no public local file may depend on an imported fact exported above
+  public visibility.
 
 `no-private-operational-leak` (raw credential-file paths, private adapter class names, raw backend
 endpoints) is enforced on **every** non-private file regardless of per-zone opt-in, so a new public
@@ -183,6 +192,9 @@ Directed edges declared in config, so your content stays pristine — **no inlin
   Use `true-up --impact <source>` when you need the complete file-level blast radius: it lists every
   generated dependent, even when many outputs share the same `via`. JS generators run with Node,
   shell/Python/Ruby/Perl generators run by extension, and extensionless shebang tools execute directly.
+- **Imported fact (one-way mirror)** — `to` can be `@alias:fact` when `imports.alias` points at a
+  tracked/staged regular in-repo snapshot. Imported targets are advisory, even if the snapshot says the
+  source was generated, so `run` never executes generator metadata that crossed a repo boundary.
 
 A `seed` whose `from`/`to` does not resolve (untracked file, or a fact that doesn't exist) is a **hard
 error** — fail-loud parity with inline anchors, never a silently-dropped edge. Inline `<!-- fact: -->`
@@ -196,6 +208,55 @@ user/agent docs and maintainer surfaces it summarizes, and `PUBLISHING.md` deriv
 changelog, local-CI, and workflow surfaces. That is deliberate graph data: `true-up --impact
 docs/CONFIG.md` names the downstream documents that need review, and `true-up graph --json` shows the
 audience and dependency map.
+
+## `repoId`, `exports`, and `imports` — inter-repo one-way mirrors
+
+Inter-repo dependencies are explicit snapshots, not live reads of another checkout. A source repo sets
+a stable `repoId` and an `exports` allowlist:
+
+```json
+{
+  "repoId": "payments-service",
+  "facts": { "secret/internal.json": [["items", "id"]] },
+  "exports": [
+    { "id": "api.timeout", "from": "secret/internal.json#items.timeout", "audience": "public", "declassify": true },
+    { "id": "internal.discount", "from": "secret/internal.json#items.discount", "audience": "internal", "declassify": true }
+  ]
+}
+```
+
+Then it emits a path-minimized snapshot for a chosen audience:
+
+```sh
+true-up export --audience public > exports/payments.public.true-up-import.json
+```
+
+If an export crosses from private/internal/secret source material to a lower audience, the exact export
+entry must include `"declassify": true`; otherwise `true-up export` fails. The source controls the
+public/private boundary and does not need to know every downstream consumer. A consumer opts in by
+tracking/staging or committing the snapshot as a regular file and pinning the identity/audience it
+agreed to mirror:
+
+```json
+{
+  "imports": {
+    "payments": {
+      "path": "imports/payments.public.true-up-import.json",
+      "repoId": "payments-service",
+      "audience": "public"
+    }
+  },
+  "seed": [{ "from": "README.md", "to": "@payments:api.timeout" }]
+}
+```
+
+Import aliases are namespaces, not paths: they cannot contain traversal or separators. Import paths
+must resolve inside the repo, be tracked/staged, and be regular files rather than symlinks, so gates
+never silently read a sibling repo. Snapshot facts carry hashes and audience metadata, not raw source
+paths. Public snapshots are schema-strict: commit ids, raw values, source paths, and arbitrary taint
+fields are rejected instead of re-emitted into the graph. Non-public imports taint downstream local
+artifacts; `true-up export --audience public` refuses to re-export an artifact derived from an
+internal/private/secret import. Public snapshots omit source commit ids.
 
 ## `out` — graph path + the commit-optional model
 

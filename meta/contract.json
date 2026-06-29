@@ -82,6 +82,16 @@
       ]
     },
     {
+      "name": "export",
+      "summary": "emit a one-way inter-repo import snapshot from explicit exports; blocks tainted re-export to lower audiences",
+      "json": true,
+      "exits": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
       "name": "gate",
       "summary": "one CI stage: --check + --policy + --externalities; nonzero on any failure",
       "json": true,

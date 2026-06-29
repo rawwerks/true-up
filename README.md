@@ -149,6 +149,7 @@ uniform `ok` boolean.
 | `true-up run [--since <ref>] [--strict]` | the loop: detect → regenerate mechanical deps → list advisory prose → verify | 1 if not green (2 under `--strict` when advisory review is pending) |
 | `true-up gate [--committed]` | one CI/pre-commit stage: `--check` + `--policy` + `--externalities` | **1 if any sub-check fails** |
 | `true-up hooks [--install\|--uninstall\|--ci] [--force]` | wire (or remove) Git hooks in a Git-backed repo, or print a CI snippet | 0 (2 if no Git hooks dir) |
+| `true-up export --audience <public\|internal\|private\|secret>` | emit a one-way inter-repo import snapshot from explicit exports | 0 (1 on tainted re-export; 2 on usage/config errors) |
 | `true-up --policy [--report]` | lint files against their declared zone rules (path leaks, visibility) | **1 on violations** (`--report` → 0) |
 | `true-up --externalities [--report]` | scan public files for machine-local path leaks (`/home/you/…`) | **1 on leaks** (`--report` → 0) |
 | `true-up --verify-scope [--since <ref>]` | guard: every changed file must be explained by the graph | 1 if an edit is out of scope |
@@ -160,7 +161,7 @@ uniform `ok` boolean.
 **Global flags:** `--repo <path>` (operate on another repo — defaults to `$TRUE_UP_REPO`, then the
 Git/jj toplevel of your CWD; `status --json` reports the resolved `.workspace.root` and warns if your
 shell CWD points at a different repo), `--json` (structured output), `--no-write` (compute in memory,
-persist nothing).
+persist nothing). Command flags include `--audience` for `export`.
 
 Exit codes are a documented dictionary: **0** = ok/clean, **1** = a gate failed (stale / leak /
 not-green), **2** = usage error (unknown command, bad ref, not a Git/jj repo, bad config). Errors name
@@ -211,6 +212,39 @@ Either way, a doc **cites** the fact to create the dependency — inline (`<!-- 
 or in config via a marker-free `seed` entry:
 `{ "from": "docs/api.md", "to": "src/app.py#parse_config", "kind": "derives-facts-from" }`.
 The edge is always explicit; true-up never guesses a dependency from co-occurrence.
+
+## Inter-repo dependencies
+
+Inter-repo edges are modeled as explicit, one-way snapshots. A source repo declares a stable `repoId`
+and an `exports` allowlist, then writes a sanitized JSON snapshot to stdout:
+
+```sh
+true-up export --audience public > exports/payments.public.true-up-import.json
+```
+
+If an export crosses from private/internal/secret source material to a lower audience, the exact export
+entry must include `"declassify": true`; that keeps the boundary explicit. The source controls what
+each audience can see and does not need to know every downstream repo. A consumer opts in by
+tracking/staging or committing that snapshot as a regular file under its own repo and pinning what it
+agreed to mirror:
+
+```json
+{
+  "imports": {
+    "payments": {
+      "path": "imports/payments.public.true-up-import.json",
+      "repoId": "payments-service",
+      "audience": "public"
+    }
+  },
+  "seed": [{ "from": "README.md", "to": "@payments:api.timeout" }]
+}
+```
+
+There are no live `../other-repo` reads in gates: import paths must stay inside the repo, must be
+tracked/staged, and cannot be symlinks. Imported generator metadata is inert, public files cannot
+depend on non-public imports, non-public import taint blocks re-export to a lower audience, and public
+snapshots reject commit ids, raw values, private paths, and arbitrary taint fields.
 
 ## Use it in CI / pre-commit
 

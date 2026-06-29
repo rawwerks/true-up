@@ -54,8 +54,8 @@ fi
 # depends on (or writes to) the dev's personal jj config, on any machine.
 JJCFG="$(mktemp)"; printf '[user]\nname = "true-up tests"\nemail = "tests@true-up.invalid"\n' > "$JJCFG"; export JJ_CONFIG="$JJCFG"
 
-FIX="$(mktemp -d)"; H=""; C=""; CG=""; P=""; E=""; V=""; M=""; S=""; Y=""; Z=""; G=""; K=""; SD=""; MG=""; PD=""; SY=""; WTBASE=""; WTLINK=""; WTCWD=""; CYC=""; JJO=""; JJC=""
-trap 'rm -rf "$FIX" "$H" "$C" "$CG" "$P" "$E" "$V" "$M" "$S" "$Y" "$Z" "$G" "$K" "$SD" "$MG" "$PD" "$SY" "$WTBASE" "$WTLINK" "$WTCWD" "$CYC" "$JJO" "$JJC" "$JJCFG"' EXIT
+FIX="$(mktemp -d)"; H=""; C=""; CG=""; P=""; E=""; V=""; M=""; IR_SRC=""; IR_DST=""; IR_BAD=""; IR_LIVE=""; IR_UNTRACKED=""; IR_SYM=""; IR_FUZZ=""; S=""; Y=""; Z=""; G=""; K=""; SD=""; MG=""; PD=""; SY=""; WTBASE=""; WTLINK=""; WTCWD=""; CYC=""; JJO=""; JJC=""
+trap 'rm -rf "$FIX" "$H" "$C" "$CG" "$P" "$E" "$V" "$M" "$IR_SRC" "$IR_DST" "$IR_BAD" "$IR_LIVE" "$IR_UNTRACKED" "$IR_SYM" "$IR_FUZZ" "$S" "$Y" "$Z" "$G" "$K" "$SD" "$MG" "$PD" "$SY" "$WTBASE" "$WTLINK" "$WTCWD" "$CYC" "$JJO" "$JJC" "$JJCFG"' EXIT
 
 # --- synthesize a target repo: steward data + a generated view + an anchored doc + a symlink ---
 git -C "$FIX" init -q
@@ -261,6 +261,529 @@ $TU --repo "$FIX" --policy --json --report 2>/dev/null | node -e 'const d=JSON.p
 $TU --repo "$FIX" --externalities --json --report 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(Array.isArray(d.hits)?0:1)' && ok "--externalities --json is valid structured JSON" || no "--externalities --json must be valid JSON"
 $TU --repo "$FIX" --impact --json 'data.json#items.a' 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(Array.isArray(d.advisory)?0:1)' && ok "--impact --json is valid structured JSON" || no "--impact --json must be valid JSON"
 
+# T23b — INTER-REPO PRIVACY: federation is explicit exported/imported SNAPSHOTS, never live ../ reads.
+# Public export is allowlist-only and path-minimizing: the exported snapshot contains stable public ids
+# + hashes, but not raw private source paths/fact names/topology.
+IR_SRC="$(mktemp -d)"; git -C "$IR_SRC" init -q; mkdir -p "$IR_SRC/secret"
+cat > "$IR_SRC/.true-up.json" <<'JSON'
+{
+  "repoId": "payments-service",
+  "facts": { "secret/internal.json": [["items", "id"]] },
+  "zones": [
+    { "path": "secret/", "visibility": "private", "audience": "team", "intent": "private-source", "rules": [] },
+    { "path": "", "visibility": "public", "audience": "world", "intent": "public", "rules": [] }
+  ],
+  "exports": [
+    { "id": "api.timeout", "from": "secret/internal.json#items.timeout", "audience": "public", "declassify": true },
+    { "id": "internal.discount", "from": "secret/internal.json#items.discount", "audience": "internal", "declassify": true }
+  ]
+}
+JSON
+printf '%s\n' '{ "items": [ { "id": "timeout", "ms": 30000 }, { "id": "discount", "rate": 0.4 } ] }' > "$IR_SRC/secret/internal.json"
+git -C "$IR_SRC" add -A && git -C "$IR_SRC" -c user.email=t@t -c user.name=t commit -qm init
+pubsnap="$IR_SRC/public.true-up-import.json"
+$TU --repo "$IR_SRC" export --audience public > "$pubsnap" 2>/dev/null; rc=$?
+{ [ "$rc" -eq 0 ] && node -e 'const fs=require("fs");const s=fs.readFileSync(process.argv[1],"utf8");const d=JSON.parse(s);process.exit(d.kind==="true-up-import-snapshot"&&d.repoId==="payments-service"&&d.audience==="public"&&d.facts["api.timeout"]&&!d.facts["internal.discount"]&&!("sourceCommit" in d)&&!s.includes("secret/internal.json")&&!s.includes("discount")?0:1)' "$pubsnap"; } && ok "inter-repo export: public snapshot is allowlist-only and does not leak private paths/facts/commit ids" || no "public export must be explicit and path-minimizing"
+
+# Exporting a private source fact to a lower audience is allowed only with explicit declassification.
+node -e 'const fs=require("fs");const p=process.argv[1];const d=JSON.parse(fs.readFileSync(p,"utf8"));delete d.exports[0].declassify;fs.writeFileSync(p,JSON.stringify(d,null,2)+"\n")' "$IR_SRC/.true-up.json"
+out="$($TU --repo "$IR_SRC" export --audience public 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'declassify'; } && ok "inter-repo privacy: private-source public export requires explicit declassify:true" || no "private-to-public export must require explicit declassification"
+git -C "$IR_SRC" checkout -- .true-up.json 2>/dev/null
+
+# Visibility is the enforceable privacy lattice. Unknown labels must fail closed instead of silently
+# downgrading a private-ish source to public.
+node -e 'const fs=require("fs");const p=process.argv[1];const d=JSON.parse(fs.readFileSync(p,"utf8"));d.zones[0].visibility="team";delete d.exports[0].declassify;fs.writeFileSync(p,JSON.stringify(d,null,2)+"\n")' "$IR_SRC/.true-up.json"
+out="$($TU --repo "$IR_SRC" export --audience public 2>&1)"; rc=$?
+{ [ "$rc" -eq 2 ] && echo "$out" | grep -q 'visibility'; } && ok "inter-repo privacy: unknown zone visibility fails closed, not public" || no "unknown visibility must not downgrade to public"
+git -C "$IR_SRC" checkout -- .true-up.json 2>/dev/null
+
+# Failed public-export JSON must not echo private source paths/fact keys.
+node -e 'const fs=require("fs");const p=process.argv[1];const d=JSON.parse(fs.readFileSync(p,"utf8"));d.exports=[{id:"api.missing",from:"secret/internal.json#items.missing",audience:"public",declassify:true}];fs.writeFileSync(p,JSON.stringify(d,null,2)+"\n")' "$IR_SRC/.true-up.json"
+out="$($TU --repo "$IR_SRC" export --audience public --json 2>/dev/null)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'api.missing' && ! echo "$out" | grep -q 'secret/' && ! echo "$out" | grep -q '#items'; } && ok "inter-repo privacy: public export JSON errors do not leak private source paths" || no "public export errors must be path-minimized"
+git -C "$IR_SRC" checkout -- .true-up.json 2>/dev/null
+
+# Public export must also sanitize generic graph-build errors before they reach JSON stdout. A bad seed
+# used to leak `secret/internal.json#items.missing` via failGraphBuildIfNeeded().
+node -e 'const fs=require("fs");const p=process.argv[1];const d=JSON.parse(fs.readFileSync(p,"utf8"));d.seed=[{from:"secret/internal.json",to:"secret/internal.json#items.missing",kind:"derives-facts-from"}];fs.writeFileSync(p,JSON.stringify(d,null,2)+"\n")' "$IR_SRC/.true-up.json"
+out="$($TU --repo "$IR_SRC" export --audience public --json 2>/dev/null)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'graph-build-errors' && ! echo "$out" | grep -q 'secret/' && ! echo "$out" | grep -q '#items'; } && ok "inter-repo privacy: public export graph-build errors are sanitized" || no "public export graph-build errors must not leak private source paths"
+git -C "$IR_SRC" checkout -- .true-up.json 2>/dev/null
+
+# A consumer repo imports the snapshot as a read-only namespace and declares a marker-free edge to it.
+IR_DST="$(mktemp -d)"; git -C "$IR_DST" init -q; mkdir -p "$IR_DST/imports"
+cp "$pubsnap" "$IR_DST/imports/payments.true-up.json"
+printf '%s\n' '# consumer' 'timeout is documented here.' > "$IR_DST/README.md"
+cat > "$IR_DST/.true-up.json" <<'JSON'
+{
+  "imports": { "payments": { "path": "imports/payments.true-up.json", "repoId": "payments-service", "audience": "public" } },
+  "zones": [ { "path": "", "visibility": "public", "audience": "world", "intent": "public", "rules": [] } ],
+  "seed": [ { "from": "README.md", "to": "@payments:api.timeout", "kind": "derives-facts-from" } ]
+}
+JSON
+git -C "$IR_DST" add -A && git -C "$IR_DST" -c user.email=t@t -c user.name=t commit -qm init
+$TU --repo "$IR_DST" build >/dev/null 2>&1 && ok "inter-repo import: build resolves a namespaced imported fact snapshot" || no "imported snapshot fact must resolve"
+$TU --repo "$IR_DST" --impact '@payments:api.timeout' 2>/dev/null | grep -q 'README.md' && ok "inter-repo import: --impact on @alias:fact lists local dependents" || no "--impact must accept imported fact targets"
+
+# Imported snapshots are ordinary tracked inputs: editing a referenced imported fact stales dependents,
+# while editing an unrelated fact in the same imported snapshot does not.
+git -C "$IR_DST" add -A && git -C "$IR_DST" -c user.email=t@t -c user.name=t commit -qm imported-base
+node -e 'const fs=require("fs");const p=process.argv[1];const d=JSON.parse(fs.readFileSync(p,"utf8"));d.facts["api.unrelated"]={hash:"unrelated1",audience:"public",visibility:"public",kind:"imported-fact",taint:[]};fs.writeFileSync(p,JSON.stringify(d,null,2)+"\n")' "$IR_DST/imports/payments.true-up.json"
+$TU --repo "$IR_DST" build >/dev/null 2>&1
+$TU --repo "$IR_DST" --impact --since HEAD 2>/dev/null | grep -q 'README.md' && no "inter-repo import: unrelated imported fact change must not stale README (early-cutoff)" || ok "inter-repo import: unrelated imported fact change does not stale dependent"
+git -C "$IR_DST" checkout -- imports/payments.true-up.json 2>/dev/null
+node -e 'const fs=require("fs");const p=process.argv[1];const d=JSON.parse(fs.readFileSync(p,"utf8"));d.facts["api.timeout"].hash="changed-timeout";fs.writeFileSync(p,JSON.stringify(d,null,2)+"\n")' "$IR_DST/imports/payments.true-up.json"
+$TU --repo "$IR_DST" build >/dev/null 2>&1
+$TU --repo "$IR_DST" --impact --since HEAD 2>/dev/null | grep -q 'README.md' && ok "inter-repo import: changed imported fact stales dependent via --since" || no "imported fact hash change must stale dependent"
+git -C "$IR_DST" checkout -- imports/payments.true-up.json 2>/dev/null; $TU --repo "$IR_DST" build >/dev/null 2>&1
+
+# Namespaces are not paths. Aliases with traversal/separators/reserved words fail loud.
+printf '%s\n' '{ "imports": { "../bad": { "path": "imports/payments.true-up.json" } }, "zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}], "seed":[] }' > "$IR_DST/.true-up.json"
+out="$($TU --repo "$IR_DST" build 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'import alias'; } && ok "inter-repo privacy: import alias validation rejects traversal/separators" || no "bad import aliases must fail loud"
+git -C "$IR_DST" checkout -- .true-up.json 2>/dev/null
+
+# Import declarations must pin both sides of the mirror: a repo identity and the audience exported.
+printf '%s\n' '{ "imports": { "payments": { "path": "imports/payments.true-up.json", "repoId": "payments-service" } }, "zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}], "seed":[] }' > "$IR_DST/.true-up.json"
+out="$($TU --repo "$IR_DST" build 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'audience'; } && ok "inter-repo handshake: consumer import must pin exported audience" || no "imports must require an explicit audience pin"
+printf '%s\n' '{ "imports": { "payments": { "path": "imports/payments.true-up.json", "audience": "public" } }, "zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}], "seed":[] }' > "$IR_DST/.true-up.json"
+out="$($TU --repo "$IR_DST" build 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'repoId'; } && ok "inter-repo handshake: consumer import must pin source repoId" || no "imports must require an explicit repoId pin"
+git -C "$IR_DST" checkout -- .true-up.json 2>/dev/null
+
+# This is a one-way mirror, not a live bidirectional relationship: the source exports for an audience
+# without knowing consumers, while the consumer pins the source identity/audience it agreed to mirror.
+printf '%s\n' '{ "imports": { "payments": { "path": "imports/payments.true-up.json", "repoId": "wrong-repo", "audience": "public" } }, "zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}], "seed":[] }' > "$IR_DST/.true-up.json"
+out="$($TU --repo "$IR_DST" build 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'repoId'; } && ok "inter-repo handshake: consumer-pinned repoId mismatch fails loud" || no "import repoId mismatch must fail loud"
+printf '%s\n' '{ "imports": { "payments": { "path": "imports/payments.true-up.json", "repoId": "payments-service", "audience": "internal" } }, "zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}], "seed":[] }' > "$IR_DST/.true-up.json"
+out="$($TU --repo "$IR_DST" build 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'audience'; } && ok "inter-repo handshake: consumer-pinned audience mismatch fails loud" || no "import audience mismatch must fail loud"
+git -C "$IR_DST" checkout -- .true-up.json 2>/dev/null
+
+# Non-public imported facts are allowed as graph data, but a public local file depending on them is a
+# policy violation. This is cross-repo no-public->private-deps, not a raw path heuristic.
+intsnap="$IR_SRC/internal.true-up-import.json"
+$TU --repo "$IR_SRC" export --audience internal > "$intsnap" 2>/dev/null
+cp "$intsnap" "$IR_DST/imports/payments-internal.true-up.json"
+git -C "$IR_DST" add imports/payments-internal.true-up.json
+cat > "$IR_DST/.true-up.json" <<'JSON'
+{
+  "imports": { "payint": { "path": "imports/payments-internal.true-up.json", "repoId": "payments-service", "audience": "internal" } },
+  "zones": [ { "path": "", "visibility": "public", "audience": "world", "intent": "public", "rules": [] } ],
+  "seed": [ { "from": "README.md", "to": "@payint:internal.discount", "kind": "derives-facts-from" } ]
+}
+JSON
+$TU --repo "$IR_DST" build >/dev/null 2>&1 && ok "inter-repo import: build may model an internal imported fact" || no "internal import should build so policy can gate it"
+out="$($TU --repo "$IR_DST" --policy 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'no-public->nonpublic-import'; } && ok "inter-repo privacy: public files cannot depend on internal imported facts" || no "policy must block public -> internal imported fact"
+
+# Non-public import taint must propagate through local files too; a public file cannot depend on an
+# internal local summary that derives from an internal import.
+mkdir -p "$IR_DST/internal"
+printf '%s\n' '# internal summary' > "$IR_DST/internal/summary.md"
+printf '%s\n' '# consumer' 'summary reference' > "$IR_DST/README.md"
+cat > "$IR_DST/.true-up.json" <<'JSON'
+{
+  "imports": { "payint": { "path": "imports/payments-internal.true-up.json", "repoId": "payments-service", "audience": "internal" } },
+  "zones": [
+    { "path": "internal/", "visibility": "internal", "audience": "team", "intent": "internal", "rules": [] },
+    { "path": "", "visibility": "public", "audience": "world", "intent": "public", "rules": [] }
+  ],
+  "seed": [
+    { "from": "internal/summary.md", "to": "@payint:internal.discount", "kind": "derives-facts-from" },
+    { "from": "README.md", "to": "internal/summary.md", "kind": "derives-facts-from" }
+  ]
+}
+JSON
+$TU --repo "$IR_DST" build >/dev/null 2>&1 && ok "inter-repo import: transitive local taint fixture builds" || no "transitive import taint fixture should build"
+out="$($TU --repo "$IR_DST" --policy 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'tainted by payint'; } && ok "inter-repo privacy: imported taint propagates through local files into policy" || no "policy must block public -> local -> internal import"
+
+# Effective imported visibility includes snapshot taint/visibility, not just the fact audience string.
+cat > "$IR_DST/imports/payments-tainted.true-up.json" <<'JSON'
+{
+  "kind": "true-up-import-snapshot",
+  "repoId": "payments-service",
+  "audience": "public",
+  "facts": {
+    "tainted.public": {
+      "hash": "tainted1",
+      "audience": "public",
+      "visibility": "public",
+      "kind": "imported-fact",
+      "taint": [ { "alias": "upstream", "repoId": "upstream-private", "audience": "internal", "id": "secret.fact" } ]
+    }
+  }
+}
+JSON
+git -C "$IR_DST" add imports/payments-tainted.true-up.json
+cat > "$IR_DST/.true-up.json" <<'JSON'
+{
+  "imports": { "tainted": { "path": "imports/payments-tainted.true-up.json", "repoId": "payments-service", "audience": "public" } },
+  "zones": [ { "path": "", "visibility": "public", "audience": "world", "intent": "public", "rules": [] } ],
+  "seed": [ { "from": "README.md", "to": "@tainted:tainted.public", "kind": "derives-facts-from" } ]
+}
+JSON
+$TU --repo "$IR_DST" build >/dev/null 2>&1 && ok "inter-repo import: tainted public-looking snapshot builds for policy review" || no "tainted public-looking import should build so policy can gate it"
+out="$($TU --repo "$IR_DST" --policy 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'no-public->nonpublic-import'; } && ok "inter-repo privacy: imported taint blocks public local dependency even when fact audience says public" || no "policy must use effective imported taint, not only fact audience"
+
+# Malformed public snapshots must not smuggle commit ids, raw values, private paths, or arbitrary taint
+# fields into graph JSON.
+cat > "$IR_DST/imports/payments-malformed.true-up.json" <<'JSON'
+{
+  "kind": "true-up-import-snapshot",
+  "repoId": "payments-service",
+  "audience": "public",
+  "sourceCommit": "deadbeef",
+  "secret/internal.json": "poison-key",
+  "facts": {
+    "malformed.public": {
+      "hash": "mal1",
+      "audience": "public",
+      "visibility": "public",
+      "kind": "imported-fact",
+      "taint": [ { "alias": "upstream", "repoId": "upstream-private", "audience": "internal", "id": "secret/internal.json#x", "path": "machine-local-secret-path", "raw": "raw-secret" } ]
+    }
+  }
+}
+JSON
+git -C "$IR_DST" add imports/payments-malformed.true-up.json
+cat > "$IR_DST/.true-up.json" <<'JSON'
+{
+  "imports": { "malformed": { "path": "imports/payments-malformed.true-up.json", "repoId": "payments-service", "audience": "public" } },
+  "zones": [ { "path": "", "visibility": "public", "audience": "world", "intent": "public", "rules": [] } ],
+  "seed": []
+}
+JSON
+out="$($TU --repo "$IR_DST" graph --json 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && ! echo "$out" | grep -q 'machine-local-secret-path' && ! echo "$out" | grep -q 'raw-secret' && ! echo "$out" | grep -q 'secret/internal'; } && ok "inter-repo privacy: malformed public snapshots cannot smuggle private metadata into graph output" || no "malformed public snapshot metadata must fail closed without echoing payload"
+out="$($TU --repo "$IR_DST" --policy 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && ! echo "$out" | grep -q 'machine-local-secret-path' && ! echo "$out" | grep -q 'raw-secret' && ! echo "$out" | grep -q 'secret/internal'; } && ok "inter-repo privacy: policy fails closed on malformed import snapshots" || no "policy must not pass when import snapshot parsing/build has failed"
+
+# Import snapshots must be local, in-repo artifacts. A path escape would turn gates into live sibling-repo
+# reads and leak local topology, so it fails loud before any graph can pass.
+IR_BAD="$(mktemp -d)"; git -C "$IR_BAD" init -q
+printf '%s\n' '# bad' > "$IR_BAD/README.md"
+printf '%s\n' '{ "imports": { "bad": { "path": "../other/export.json" } }, "zones":[{"path":"","visibility":"public","audience":"world","intent":"public","rules":[]}], "seed":[] }' > "$IR_BAD/.true-up.json"
+git -C "$IR_BAD" add -A && git -C "$IR_BAD" -c user.email=t@t -c user.name=t commit -qm init
+out="$($TU --repo "$IR_BAD" build 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'import' && echo "$out" | grep -q 'outside repo'; } && ok "inter-repo privacy: import snapshot path escapes fail loud" || no "import paths must be confined to the repo"
+
+# Import snapshots must be staged/committed local files, not invisible untracked agreement.
+IR_UNTRACKED="$(mktemp -d)"; git -C "$IR_UNTRACKED" init -q; mkdir -p "$IR_UNTRACKED/imports"
+cp "$pubsnap" "$IR_UNTRACKED/imports/payments.true-up.json"
+printf '%s\n' '# untracked import' > "$IR_UNTRACKED/README.md"
+cat > "$IR_UNTRACKED/.true-up.json" <<'JSON'
+{
+  "imports": { "payments": { "path": "imports/payments.true-up.json", "repoId": "payments-service", "audience": "public" } },
+  "zones": [ { "path": "", "visibility": "public", "audience": "world", "intent": "public", "rules": [] } ],
+  "seed": [ { "from": "README.md", "to": "@payments:api.timeout" } ]
+}
+JSON
+git -C "$IR_UNTRACKED" add .true-up.json README.md && git -C "$IR_UNTRACKED" -c user.email=t@t -c user.name=t commit -qm init
+out="$($TU --repo "$IR_UNTRACKED" build 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'not tracked'; } && ok "inter-repo privacy: import snapshot must be tracked/staged, not untracked" || no "untracked import snapshot must fail loud"
+
+# A tracked symlink inside imports/ must not be followed to a live sibling checkout.
+IR_SYM="$(mktemp -d)"; git -C "$IR_SYM" init -q; mkdir -p "$IR_SYM/imports" "$IR_SYM/sibling"
+cp "$pubsnap" "$IR_SYM/sibling/live.true-up-import.json"
+ln -s ../sibling/live.true-up-import.json "$IR_SYM/imports/live.true-up-import.json"
+printf '%s\n' '# symlink import' > "$IR_SYM/README.md"
+cat > "$IR_SYM/.true-up.json" <<'JSON'
+{
+  "imports": { "payments": { "path": "imports/live.true-up-import.json", "repoId": "payments-service", "audience": "public" } },
+  "zones": [ { "path": "", "visibility": "public", "audience": "world", "intent": "public", "rules": [] } ],
+  "seed": [ { "from": "README.md", "to": "@payments:api.timeout" } ]
+}
+JSON
+git -C "$IR_SYM" add .true-up.json README.md imports/live.true-up-import.json && git -C "$IR_SYM" -c user.email=t@t -c user.name=t commit -qm init
+out="$($TU --repo "$IR_SYM" build 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'symlink'; } && ok "inter-repo privacy: import snapshot symlink is rejected (no live sibling mirror)" || no "symlinked import snapshot must fail loud"
+
+# Direct live ../ seed endpoints remain rejected; users must import a sanitized snapshot instead.
+IR_LIVE="$(mktemp -d)"; git -C "$IR_LIVE" init -q
+printf '%s\n' '# live' > "$IR_LIVE/README.md"
+printf '%s\n' "{ \"zones\":[{\"path\":\"\",\"visibility\":\"public\",\"audience\":\"world\",\"intent\":\"public\",\"rules\":[]}], \"seed\":[{\"from\":\"README.md\",\"to\":\"../$(basename "$IR_SRC")/secret/internal.json\",\"kind\":\"derives-facts-from\"}] }" > "$IR_LIVE/.true-up.json"
+git -C "$IR_LIVE" add -A && git -C "$IR_LIVE" -c user.email=t@t -c user.name=t commit -qm init
+out="$($TU --repo "$IR_LIVE" build 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'not tracked / not found'; } && ok "inter-repo privacy: live ../ seed dependency is rejected" || no "live sibling-repo seed must not be accepted"
+
+# Imported mechanical/generator metadata is inert: true-up run must never execute a `via` that arrived
+# from an import snapshot.
+cat > "$IR_DST/imports/payments.true-up.json" <<'JSON'
+{
+  "kind": "true-up-import-snapshot",
+  "repoId": "payments-service",
+  "audience": "public",
+  "facts": {
+    "generated.table": {
+      "hash": "gen1",
+      "audience": "public",
+      "visibility": "public",
+      "kind": "generated-from",
+      "via": "scripts/evil.sh",
+      "taint": []
+    }
+  }
+}
+JSON
+printf '%s\n' '# generated table' > "$IR_DST/README.md"
+printf '%s\n' 'SHOULD_NOT_RUN' > "$IR_DST/sentinel.txt"
+cat > "$IR_DST/.true-up.json" <<'JSON'
+{
+  "imports": { "payments": { "path": "imports/payments.true-up.json", "repoId": "payments-service", "audience": "public" } },
+  "zones": [ { "path": "", "visibility": "public", "audience": "world", "intent": "public", "rules": [] } ],
+  "seed": [ { "from": "README.md", "to": "@payments:generated.table", "kind": "generated-from", "via": "scripts/evil.sh" } ]
+}
+JSON
+git -C "$IR_DST" add -A && git -C "$IR_DST" -c user.email=t@t -c user.name=t commit -qm imported-generator
+node -e 'const fs=require("fs");const p=process.argv[1];const d=JSON.parse(fs.readFileSync(p,"utf8"));d.facts["generated.table"].hash="gen2";fs.writeFileSync(p,JSON.stringify(d,null,2)+"\n")' "$IR_DST/imports/payments.true-up.json"
+out="$($TU --repo "$IR_DST" build 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && ! echo "$out" | grep -q 'scripts/evil' && ! echo "$out" | grep -q 'via' && grep -q 'SHOULD_NOT_RUN' "$IR_DST/sentinel.txt"; } && ok "inter-repo safety: imported/generated metadata is rejected without echoing executable fields" || no "imported generators must be fail-closed and never execute"
+
+# Taint propagation: after importing internal facts, a local private summary derived from them cannot be
+# re-exported to a lower (public) audience.
+mkdir -p "$IR_DST/private"
+printf '%s\n' '# private summary' 'discount details' > "$IR_DST/private/summary.md"
+cat > "$IR_DST/.true-up.json" <<'JSON'
+{
+  "repoId": "consumer-service",
+  "imports": { "payint": { "path": "imports/payments-internal.true-up.json", "repoId": "payments-service", "audience": "internal" } },
+  "zones": [
+    { "path": "private/", "visibility": "private", "audience": "team", "intent": "private", "rules": [] },
+    { "path": "", "visibility": "public", "audience": "world", "intent": "public", "rules": [] }
+  ],
+  "seed": [ { "from": "private/summary.md", "to": "@payint:internal.discount", "kind": "derives-facts-from" } ],
+  "exports": [ { "id": "summary.discount", "from": "private/summary.md", "audience": "public", "declassify": true } ]
+}
+JSON
+out="$($TU --repo "$IR_DST" export --audience public 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'taint' && echo "$out" | grep -q 'payint'; } && ok "inter-repo privacy: internal-import taint blocks public re-export" || no "public export must reject local artifacts tainted by internal imports"
+
+# Fact nodes extracted from a tainted local file inherit the file's import taint. Exporting the fact
+# directly must not wash the taint away.
+mkdir -p "$IR_DST/secure"
+printf '%s\n' '{ "items": [ { "id": "summary", "text": "discount summary" } ] }' > "$IR_DST/secure/summary.json"
+cat > "$IR_DST/.true-up.json" <<'JSON'
+{
+  "repoId": "consumer-service",
+  "facts": { "secure/summary.json": [["items", "id"]] },
+  "imports": { "payint": { "path": "imports/payments-internal.true-up.json", "repoId": "payments-service", "audience": "internal" } },
+  "zones": [
+    { "path": "secure/", "visibility": "private", "audience": "team", "intent": "private", "rules": [] },
+    { "path": "", "visibility": "public", "audience": "world", "intent": "public", "rules": [] }
+  ],
+  "seed": [ { "from": "secure/summary.json", "to": "@payint:internal.discount", "kind": "derives-facts-from" } ],
+  "exports": [ { "id": "summary.fact", "from": "secure/summary.json#items.summary", "audience": "public", "declassify": true } ]
+}
+JSON
+out="$($TU --repo "$IR_DST" export --audience public 2>&1)"; rc=$?
+{ [ "$rc" -ne 0 ] && echo "$out" | grep -q 'taint' && echo "$out" | grep -q 'payint'; } && ok "inter-repo privacy: local fact exports inherit host-file import taint" || no "fact export must not wash host file import taint"
+
+# Deterministic structure-aware fuzzing around the import/export boundary. This is intentionally not
+# byte-random: the parser boundary is JSON config/snapshot shape, so we mutate schema-valid-ish objects
+# and assert the privacy invariants that must hold for every accepted case.
+IR_FUZZ="$(mktemp -d)"
+node - "$HERE" "$IR_FUZZ" <<'NODE'
+const fs = require('fs')
+const path = require('path')
+const { spawnSync } = require('child_process')
+
+const here = process.argv[2]
+const root = process.argv[3]
+const tool = path.join(here, 'bin/true-up')
+const poison = ['secret/internal.json', 'machine-local-secret-path', 'raw-secret', 'deadbeefcafebabe', 'vip-private-value']
+let seed = 0x5eed1234
+function rnd() {
+  seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+  return seed / 0x100000000
+}
+function pick(xs) { return xs[Math.floor(rnd() * xs.length)] }
+function shuffleObj(obj) {
+  const out = {}
+  for (const k of Object.keys(obj).sort(() => rnd() - 0.5)) out[k] = obj[k]
+  return out
+}
+function run(args, cwd) {
+  return spawnSync(process.execPath, [tool, ...args], {
+    cwd,
+    encoding: 'utf8',
+    env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+  })
+}
+function git(repo, args) {
+  const r = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' })
+  if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr || r.stdout}`)
+}
+function writeJSON(file, value) {
+  fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n')
+}
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg)
+}
+function assertNoPoison(text, label) {
+  for (const p of poison) assert(!String(text).includes(p), `${label} leaked ${p}`)
+}
+function initRepo(name) {
+  const repo = path.join(root, name)
+  fs.mkdirSync(repo, { recursive: true })
+  git(repo, ['init', '-q'])
+  git(repo, ['config', 'user.email', 't@t'])
+  git(repo, ['config', 'user.name', 't'])
+  return repo
+}
+function baseSnapshot(id, audience = 'public', extras = {}) {
+  return shuffleObj({
+    kind: 'true-up-import-snapshot',
+    repoId: 'payments-service',
+    audience,
+    facts: {
+      [id]: shuffleObj({
+        hash: `h${Math.floor(rnd() * 1e9).toString(16)}`,
+        audience,
+        visibility: audience,
+        kind: 'imported-fact',
+        taint: [],
+        ...extras,
+      }),
+    },
+  })
+}
+function importCase(i, mode) {
+  const repo = initRepo(`import-${i}`)
+  fs.mkdirSync(path.join(repo, 'imports'), { recursive: true })
+  fs.writeFileSync(path.join(repo, 'README.md'), '# consumer\n')
+  fs.mkdirSync(path.join(repo, 'internal'), { recursive: true })
+  fs.writeFileSync(path.join(repo, 'internal/summary.md'), '# internal\n')
+  const fact = `api.${i}`
+  let alias = pick(['payments', 'pay_1', 'mirror.a', 'M-2'])
+  let importPath = 'imports/payments.true-up.json'
+  let pinRepo = 'payments-service'
+  let pinAudience = 'public'
+  let seedFrom = 'README.md'
+  let seedTo = `@${alias}:${fact}`
+  let snapshot = baseSnapshot(fact)
+  let expectGraph = true
+  let expectPolicy = 0
+
+  if (mode === 1) {
+    snapshot = { ...snapshot, sourceCommit: 'deadbeefcafebabe', sourcePath: 'secret/internal.json', 'secret/internal.json': 'poison-key' }
+    expectGraph = false
+  } else if (mode === 2) {
+    snapshot.facts[fact].raw = 'raw-secret'
+    snapshot.facts[fact].path = 'machine-local-secret-path'
+    expectGraph = false
+  } else if (mode === 3) {
+    snapshot.facts[fact].via = 'scripts/evil.sh'
+    expectGraph = false
+  } else if (mode === 4) {
+    snapshot.facts[fact].taint = [{ alias: 'upstream', repoId: 'private-source', audience: 'internal', id: 'secret.fact' }]
+    expectPolicy = 1
+  } else if (mode === 5) {
+    snapshot = baseSnapshot(fact, 'internal')
+    pinAudience = 'internal'
+    expectPolicy = 1
+  } else if (mode === 6) {
+    snapshot = baseSnapshot(fact, 'internal')
+    pinAudience = 'internal'
+    seedFrom = 'internal/summary.md'
+    expectPolicy = 0
+  } else if (mode === 7) {
+    alias = pick(['../bad', 'bad/name', 'import', 'main'])
+    seedTo = '@payments:api.0'
+    expectGraph = false
+  } else if (mode === 8) {
+    importPath = '../outside.json'
+    expectGraph = false
+  } else if (mode === 9) {
+    pinRepo = 'wrong-service'
+    expectGraph = false
+  } else if (mode === 10) {
+    pinAudience = 'private'
+    expectGraph = false
+  } else if (mode === 11) {
+    snapshot = baseSnapshot('bad/id')
+    seedTo = `@${alias}:bad/id`
+    expectGraph = false
+  } else if (mode === 12) {
+    snapshot.facts[fact].taint = [{ alias: 'u', repoId: 'r', audience: 'internal', id: 'secret.fact', raw: 'raw-secret', path: 'machine-local-secret-path' }]
+    expectGraph = false
+  }
+
+  fs.writeFileSync(path.join(repo, 'imports/payments.true-up.json'), JSON.stringify(snapshot, null, 2) + '\n')
+  writeJSON(path.join(repo, '.true-up.json'), {
+    imports: { [alias]: { path: importPath, repoId: pinRepo, audience: pinAudience } },
+    zones: [
+      { path: 'internal/', visibility: 'internal', audience: 'team', intent: 'internal', rules: [] },
+      { path: '', visibility: 'public', audience: 'world', intent: 'public', rules: [] },
+    ],
+    seed: [{ from: seedFrom, to: seedTo, kind: 'derives-facts-from' }],
+  })
+  git(repo, ['add', '-A'])
+  const g = run(['--repo', repo, 'graph', '--json'], repo)
+  const combined = `${g.stdout}\n${g.stderr}`
+  assertNoPoison(combined, `import case ${i}`)
+  if (!expectGraph) {
+    assert(g.status !== 0, `import case ${i} unexpectedly built`)
+    const p = run(['--repo', repo, '--policy'], repo)
+    assertNoPoison(`${p.stdout}\n${p.stderr}`, `import case ${i} policy`)
+    assert(p.status !== 0, `import case ${i} policy passed despite graph/import errors`)
+    return
+  }
+  assert(g.status === 0, `import case ${i} failed graph: ${combined}`)
+  const graph = JSON.parse(g.stdout)
+  const graphText = JSON.stringify(graph)
+  assertNoPoison(graphText, `import case ${i} graph`)
+  for (const [id, node] of Object.entries(graph.nodes || {})) {
+    if (id.startsWith('import:')) assert(!('via' in node), `import case ${i} preserved executable via metadata`)
+  }
+  const p = run(['--repo', repo, '--policy'], repo)
+  if (expectPolicy) assert(p.status !== 0, `import case ${i} policy unexpectedly passed`)
+  else assert(p.status === 0, `import case ${i} policy unexpectedly failed: ${p.stdout}${p.stderr}`)
+}
+function exportCase(i, mode) {
+  const repo = initRepo(`export-${i}`)
+  fs.mkdirSync(path.join(repo, 'secret'), { recursive: true })
+  fs.writeFileSync(path.join(repo, 'secret/internal.json'), '{ "items": [ { "id": "timeout", "value": "vip-private-value" } ] }\n')
+  const exportEntry = { id: `api.${i}`, from: 'secret/internal.json#items.timeout', audience: 'public' }
+  if (mode !== 0) exportEntry.declassify = true
+  if (mode === 2) exportEntry.from = 'secret/internal.json#items.missing'
+  const seed = mode === 4 ? [{ from: 'secret/internal.json', to: 'secret/internal.json#items.missing', kind: 'derives-facts-from' }] : []
+  writeJSON(path.join(repo, '.true-up.json'), {
+    repoId: 'payments-service',
+    facts: { 'secret/internal.json': [['items', 'id']] },
+    zones: [
+      { path: 'secret/', visibility: mode === 3 ? 'team' : 'private', audience: 'team', intent: 'private', rules: [] },
+      { path: '', visibility: 'public', audience: 'world', intent: 'public', rules: [] },
+    ],
+    exports: [exportEntry],
+    seed,
+  })
+  git(repo, ['add', '-A'])
+  const r = run(['--repo', repo, 'export', '--audience', 'public', '--json'], repo)
+  const combined = `${r.stdout}\n${r.stderr}`
+  assertNoPoison(combined, `export case ${i}`)
+  if (mode === 0 || mode === 2 || mode === 3 || mode === 4) {
+    assert(r.status !== 0, `export case ${i} unexpectedly succeeded`)
+    return
+  }
+  assert(r.status === 0, `export case ${i} failed: ${combined}`)
+  const snap = JSON.parse(r.stdout)
+  const text = JSON.stringify(snap)
+  assertNoPoison(text, `export case ${i} snapshot`)
+  assert(snap.kind === 'true-up-import-snapshot' && snap.repoId === 'payments-service' && snap.audience === 'public', `export case ${i} bad envelope`)
+}
+
+for (let i = 0; i < 52; i++) importCase(i, i % 13)
+for (let i = 0; i < 20; i++) exportCase(i, i % 5)
+NODE
+rc=$?
+[ "$rc" -eq 0 ] && ok "inter-repo fuzz: structure-aware boundary corpus preserves privacy invariants" || no "inter-repo fuzz must preserve import/export privacy invariants"
+
 # T24 — ergonomics: a mistyped command gets a 'did you mean' suggestion (Axiom 7 intent inference)
 err="$($TU --repo "$FIX" --externalites 2>&1)"; rc=$?
 { [ "$rc" -eq 2 ] && echo "$err" | grep -q 'did you mean: --externalities'; } && ok "did-you-mean suggests the nearest command on a typo" || no "must suggest nearest command on a typo"
@@ -422,7 +945,7 @@ fp(){ ( cd "$1" && find . -type f -not -path './.git/*' -not -path './.true-up/*
 RO_OK=1
 for cmd in "" "--no-write" "graph" "--check" "--impact data.json#items.a" "--policy --report" "--externalities --report" "--verify-scope --since HEAD" "gate" "capabilities" "--version" "--help"; do
   b="$(fp "$FIX")"; $TU --repo "$FIX" $cmd >/dev/null 2>&1; a="$(fp "$FIX")"
-  [ "$b" = "$a" ] || { RO_OK=0; printf '    content CHANGED by: true-up %s\n' "${cmd:-(build)}"; }
+  [ "$b" = "$a" ] || { RO_OK=0; label="${cmd:-build}"; printf '    content CHANGED by: true-up %s\n' "$label"; }
 done
 [ "$RO_OK" = 1 ] && ok "INVARIANT: no read-side command touches any content file (writes only .true-up/)" || no "read-side commands must not modify content outside .true-up/"
 [ -f "$FIX/.true-up/depgraph.json" ] && ok "INVARIANT: build's only write is its graph under .true-up/" || no "build must write its graph under .true-up/"

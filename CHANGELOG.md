@@ -8,6 +8,29 @@ surface in [`meta/contract.json`](meta/contract.json) (`true-up capabilities`, `
 Scope: from the initial commit through the first tagged release. Links point at the canonical
 commit pages on GitHub (`rawwerks/true-up`). No GitHub *Releases* existed before `v0.1.0`.
 
+## [0.2.1] - 2026-07-07
+
+Performance/robustness release: kills the quadratic scan behind a multi-day CPU runaway and adds a
+watchdog so no future scan can spin unbounded.
+
+### Fixed
+
+- **Quadratic suppression rescan (the 14-day 95%-CPU runaway).** `suppressor()` re-ran
+  `fileSuppressed()` — a whole-file regex scan for the file-level suppression directive — on **every
+  line**, making the per-line marker scan in `build()` O(lines²). On a repo with a large tracked text
+  file (a multi-hundred-k-line `package-lock.json`/`bun.lock` is the canonical case) a bare build
+  burned days to weeks of CPU at ~100%. The file-scoped result is now memoized once per file: a
+  40k-line lockfile build went from >60 s to ~0.2 s, and scaling is linear.
+
+### Added
+
+- **Runaway watchdog (`deadlineMs` / `TRUE_UP_DEADLINE_MS`).** The engine is fully synchronous, so a
+  timer can never preempt a spinning loop; instead the hot loops cooperatively check a wall-clock
+  deadline (default 10 minutes) and abort with exit `2`, a message naming the loop, and a
+  `deadline-exceeded` JSON envelope under `--json` — so any future unforeseen spin self-terminates in
+  minutes instead of pinning a CPU for weeks. `TRUE_UP_DEADLINE_MS=0` (or `"deadlineMs": 0`) disables
+  it. See `docs/CONFIG.md`.
+
 ## [0.2.0] - 2026-06-29
 
 Inter-repo snapshot/import support plus stricter privacy policy enforcement. This is a `0.2.0` release,

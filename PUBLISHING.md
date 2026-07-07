@@ -1,14 +1,14 @@
-# Publishing true-up@0.2.0 to npm — handoff for a credentialed agent
+# Publishing true-up@0.2.1 to npm — handoff for a credentialed agent
 
-**Status: local release candidate for `true-up@0.2.0`.** The package is unscoped and public. The
+**Status: local release candidate for `true-up@0.2.1`.** The package is unscoped and public. The
 release metadata, changelog, migration guide, docs, and harness are prepared in the working tree.
 Before npm publish, the release agent must create the final release commit and annotated tag, re-run
 the trust anchor, publish, and then push the commit/tag if authorized. Do not publish from an
 uncommitted or untagged tree.
 
-This is intentionally `0.2.0`, not `0.1.5`: inter-repo import/export is new public CLI/config surface,
+This release line (0.2.x) is intentionally `0.2`, not `0.1.5`: inter-repo import/export is new public CLI/config surface,
 and `--policy` now enforces the full `public < internal < private < secret` visibility lattice for
-local edges. Adopters should read [`docs/MIGRATION-0.2.0.md`](docs/MIGRATION-0.2.0.md).
+local edges; `0.2.1` adds the quadratic-scan fix and the runaway watchdog (see CHANGELOG). Adopters should read [`docs/MIGRATION-0.2.0.md`](docs/MIGRATION-0.2.0.md).
 
 The trust anchor is the local CI — **`npm run ci`** ([`scripts/ci.sh`](scripts/ci.sh)) — which runs the
 whole chain and exits nonzero on any failure: fixture suite, including visibility-lattice and inter-repo
@@ -23,12 +23,12 @@ hosted CI gate for this repo; the release proof is local by design.
 cd <true-up repo>
 git fetch --tags origin
 git checkout main                                 # publish from the final local release commit
-git tag --points-at HEAD | grep -qx 'v0.2.0'      # MUST be tagged exactly for this release before publish
+git tag --points-at HEAD | grep -qx 'v0.2.1'      # MUST be tagged exactly for this release before publish
 git status --porcelain                            # MUST be empty (clean tree)
 node -p "require('./package.json').private"        # MUST print: undefined  (the private gate is gone)
 npm whoami                                         # MUST print your npm user (publish rights). Else: npm login
 npm view true-up version                           # Re-confirm latest is 0.1.4 before this publish.
-npm view true-up@0.2.0 version                     # MUST be E404/404. If it prints 0.2.0 → STOP, already published.
+npm view true-up@0.2.1 version                     # MUST be E404/404. If it prints 0.2.1 → STOP, already published.
 npm run ci                                         # MUST exit 0 — the trust anchor. If red, STOP and report.
 ```
 
@@ -47,14 +47,14 @@ npm publish
   only for scoped `@org/name` packages).
 - `prepublishOnly` re-runs `bash scripts/ci.sh` automatically and fail-closes if anything broke. It is
   intentionally direct, not `npm run ci`, so `scripts/ci.sh` can distinguish an actual publish from a
-  manual local validation run and hard-fail if `HEAD` is not tagged `v0.2.0`.
+  manual local validation run and hard-fail if `HEAD` is not tagged `v0.2.1`.
 
 ## Post-publish verification (from a clean dir, e.g. `cd $(mktemp -d)`)
 
 ```sh
-npm view true-up version                  # MUST now print 0.2.0
-npx -y true-up@0.2.0 --version            # MUST print: true-up 0.2.0
-npx -y true-up@0.2.0 capabilities | head  # valid JSON; npx will NOT pull tree-sitter (peer deps are optional)
+npm view true-up version                  # MUST now print 0.2.1
+npx -y true-up@0.2.1 --version            # MUST print: true-up 0.2.1
+npx -y true-up@0.2.1 capabilities | head  # valid JSON; npx will NOT pull tree-sitter (peer deps are optional)
 ```
 
 Then, if you are also authorized to update GitHub, push the release commit and tag with the local
@@ -62,14 +62,14 @@ safe wrapper:
 
 ```sh
 safe-push origin main
-safe-push origin v0.2.0
+safe-push origin v0.2.1
 ```
 
 ## Rollback caveat
 
-- `npm unpublish true-up@0.2.0` is allowed **only within 72h** of publishing; after that npm forbids it —
+- `npm unpublish true-up@0.2.1` is allowed **only within 72h** of publishing; after that npm forbids it —
   ship a patch (`0.2.1`) instead.
-- If the published tarball is wrong, prefer `npm deprecate true-up@0.2.0 "use 0.2.1"` + a fixed release
+- If the published tarball is wrong, prefer `npm deprecate true-up@0.2.1 "use 0.2.1"` + a fixed release
   over unpublish.
 
 ## What's already done (so you don't have to)

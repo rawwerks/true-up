@@ -54,8 +54,8 @@ fi
 # depends on (or writes to) the dev's personal jj config, on any machine.
 JJCFG="$(mktemp)"; printf '[user]\nname = "true-up tests"\nemail = "tests@true-up.invalid"\n' > "$JJCFG"; export JJ_CONFIG="$JJCFG"
 
-FIX="$(mktemp -d)"; H=""; C=""; CG=""; P=""; E=""; V=""; M=""; IR_SRC=""; IR_DST=""; IR_BAD=""; IR_LIVE=""; IR_UNTRACKED=""; IR_SYM=""; IR_FUZZ=""; S=""; Y=""; Z=""; G=""; K=""; SD=""; MG=""; PD=""; SY=""; WTBASE=""; WTLINK=""; WTCWD=""; CYC=""; JJO=""; JJC=""
-trap 'rm -rf "$FIX" "$H" "$C" "$CG" "$P" "$E" "$V" "$M" "$IR_SRC" "$IR_DST" "$IR_BAD" "$IR_LIVE" "$IR_UNTRACKED" "$IR_SYM" "$IR_FUZZ" "$S" "$Y" "$Z" "$G" "$K" "$SD" "$MG" "$PD" "$SY" "$WTBASE" "$WTLINK" "$WTCWD" "$CYC" "$JJO" "$JJC" "$JJCFG"' EXIT
+FIX="$(mktemp -d)"; H=""; C=""; CG=""; P=""; E=""; V=""; M=""; IR_SRC=""; IR_DST=""; IR_BAD=""; IR_LIVE=""; IR_UNTRACKED=""; IR_SYM=""; IR_FUZZ=""; S=""; Y=""; Z=""; G=""; K=""; SD=""; MG=""; PD=""; SY=""; WTBASE=""; WTLINK=""; WTCWD=""; CYC=""; JJO=""; JJC=""; RUNAWAY=""
+trap 'rm -rf "$FIX" "$H" "$C" "$CG" "$P" "$E" "$V" "$M" "$IR_SRC" "$IR_DST" "$IR_BAD" "$IR_LIVE" "$IR_UNTRACKED" "$IR_SYM" "$IR_FUZZ" "$S" "$Y" "$Z" "$G" "$K" "$SD" "$MG" "$PD" "$SY" "$WTBASE" "$WTLINK" "$WTCWD" "$CYC" "$JJO" "$JJC" "$JJCFG" "$RUNAWAY"' EXIT
 
 # --- synthesize a target repo: steward data + a generated view + an anchored doc + a symlink ---
 git -C "$FIX" init -q
@@ -1488,6 +1488,29 @@ echo "$ihelp" | grep -Eq "Tier 1|Tier 2|Axiom [0-9]" && jargon_hits="$jargon_hit
 # T78 — INSTALLER --help MUST NOT LEAK SOURCE (the help handler seds a comment range; an over-wide
 # range prints real code — the audit caught exactly this).
 echo "$ihelp" | grep -qE 'set -euo pipefail|^REPO_SLUG=|umask |shopt -s' && no "install.sh --help leaks source code (sed range overshoots the comment header)" || ok "install.sh --help renders only the comment header (no source leak)"
+
+# ============================================================================
+# T79 — RUNAWAY GUARD (the 2026-06 incident: engine.mjs pinned at ~95% CPU for 14+ days).
+# Root cause: suppressor() called fileSuppressed() — a whole-file regex scan — on EVERY line, making
+# build's per-line marker scan O(lines²). A large tracked text file (a lockfile is the canonical case:
+# KEEP_SPECIAL_RE keeps package-lock.json/bun.lock) turned a one-shot build into days-to-weeks of CPU.
+# Guard 1: the scan must be LINEAR — a 40k-line lockfile builds in seconds (pre-fix: >60s, quadratic).
+# Guard 2: the cooperative deadline (TRUE_UP_DEADLINE_MS / "deadlineMs") aborts ANY future runaway loop
+# with exit 2 + a named location, instead of spinning for weeks. 0 disables it.
+# ============================================================================
+RUNAWAY="$(mktemp -d)"
+git -C "$RUNAWAY" init -q
+node -e 'const n=40000;const L=["{"]; for(let i=0;i<n;i++) L.push(`  "pkg${i}": { "version": "1.0.${i}", "resolved": "https://registry.example/p${i}" },`); L.push("  \"end\": {}","}"); require("fs").writeFileSync(process.argv[1]+"/package-lock.json", L.join("\n"))' "$RUNAWAY"
+printf '# big-repo fixture\n' > "$RUNAWAY/README.md"
+git -C "$RUNAWAY" add -A && git -C "$RUNAWAY" -c user.email=t@t -c user.name=t commit -qm init
+timeout 30 $TU --repo "$RUNAWAY" --no-write >/dev/null 2>&1
+[ "$?" -eq 0 ] && ok "runaway guard: 40k-line lockfile builds in seconds (per-line suppression is O(lines), not O(lines²))" || no "runaway guard: build on a large tracked file must be linear — quadratic suppression rescan is back (the 14-day 95%-CPU incident)"
+derr="$(TRUE_UP_DEADLINE_MS=1 $TU --repo "$RUNAWAY" --no-write 2>&1 >/dev/null)"; drc=$?
+{ [ "$drc" -eq 2 ] && echo "$derr" | grep -q 'deadline exceeded'; } && ok "runaway guard: TRUE_UP_DEADLINE_MS aborts a spinning engine (exit 2, names the loop)" || no "runaway guard: deadline watchdog must abort with exit 2 + 'deadline exceeded' (got rc=$drc)"
+djs="$(TRUE_UP_DEADLINE_MS=1 $TU --repo "$RUNAWAY" --no-write --json 2>/dev/null)"
+printf '%s' "$djs" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===false&&d.error==="deadline-exceeded"&&d.where?0:1)' 2>/dev/null && ok "runaway guard: --json deadline abort emits {ok:false,error:deadline-exceeded,where}" || no "runaway guard: --json deadline abort must emit a parseable envelope"
+TRUE_UP_DEADLINE_MS=0 $TU --repo "$RUNAWAY" --no-write >/dev/null 2>&1
+[ "$?" -eq 0 ] && ok "runaway guard: TRUE_UP_DEADLINE_MS=0 disables the watchdog (opt-out stays possible)" || no "runaway guard: deadline=0 must disable the watchdog"
 
 # ============================================================================
 # JJ-ONLY VCS CONFORMANCE. These are harness-engineering guardrails for the bug class:

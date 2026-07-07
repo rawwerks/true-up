@@ -78,6 +78,17 @@ span nothing depends on is harmless, and a doc that *does* anchor to a missing s
 `"strictSpans": true` to make any malformed span a **fatal** build/`--check` error (exit 1) instead —
 use it in a CI gate so a typo can't silently drop a span you meant to track.
 
+## `deadlineMs` — runaway-scan watchdog (default: 600000)
+
+Every true-up invocation is a **one-shot** that should finish in seconds-to-minutes. As a backstop
+against any future pathological scan (the bug class: a superlinear loop over a huge tracked file
+turning one build into days of pinned CPU), the engine's hot loops check a wall-clock deadline and
+**abort loudly** — exit `2`, naming the loop (and a `{ "error": "deadline-exceeded" }` envelope under
+`--json`) — instead of spinning. The default is 10 minutes. Tune per repo with `"deadlineMs"`, or
+per invocation with the `TRUE_UP_DEADLINE_MS` environment variable (which wins over the config).
+Set it to `0` to disable the watchdog for a legitimately enormous run. A run that finishes inside
+the deadline is byte-identical to one with the watchdog disabled — determinism is unaffected.
+
 ## Hashing model (what is normalized before hashing)
 
 Content hashes are `sha256` (16 hex chars). Only **JSON facts are normalized** — the array element is

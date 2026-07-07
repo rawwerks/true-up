@@ -8,9 +8,13 @@ surface in [`meta/contract.json`](meta/contract.json) (`true-up capabilities`, `
 Scope: from the initial commit through the first tagged release. Links point at the canonical
 commit pages on GitHub (`rawwerks/true-up`). No GitHub *Releases* existed before `v0.1.0`.
 
-## Next
+## [0.2.0] - 2026-06-29
 
-Development after `0.1.4` adds the inter-repo snapshot/import surface:
+Inter-repo snapshot/import support plus stricter privacy policy enforcement. This is a `0.2.0` release,
+not `0.1.5`, because it adds public CLI/config surface and can expose new policy failures in existing
+repos. See [`docs/MIGRATION-0.2.0.md`](docs/MIGRATION-0.2.0.md).
+
+### Added
 
 - **One-way inter-repo mirrors.** Source repos can declare `repoId` plus explicit `exports` and emit
   audience-scoped snapshots with `true-up export --audience <public|internal|private|secret>`.
@@ -19,13 +23,25 @@ Development after `0.1.4` adds the inter-repo snapshot/import surface:
 - **Privacy hardening for public/private boundaries.** Export requires per-entry `declassify: true`
   when crossing from higher-visibility source material to a lower audience. Imports reject path
   escapes, symlinks, untracked snapshots, mismatched identity/audience pins, source paths, commit ids,
-  raw values, executable generator metadata, and malformed taint fields. Local dependency policy now
-  enforces the full visibility lattice (`public < internal < private < secret`) instead of a path-name
-  heuristic, and non-public import taint propagates through local files/facts and blocks public
-  re-export.
+  raw values, executable generator metadata, and malformed taint fields. Non-public import taint
+  propagates through local files/facts and blocks public re-export.
 - **Harness expansion.** The fixture suite now covers the adversarial cases above, including
   lower-visibility local edges into secret sources, transitive taint, fact-level taint laundering,
   malformed public snapshots, and imported generator execution.
+
+### Changed
+
+- **Visibility is now a fixed lattice.** Zone `visibility` must be one of `public`, `internal`,
+  `private`, or `secret`; use `audience`/`intent` for team-specific labels.
+- **Local dependency policy is lattice-based.** The historical `no-public->private-deps` rule name is
+  kept, but it now blocks any local edge from a lower-visibility dependent to a higher-visibility
+  source (`public < internal < private < secret`) instead of checking for a literal `private/` path.
+
+### Migration
+
+Before upgrading gates, run the migration checklist in [`docs/MIGRATION-0.2.0.md`](docs/MIGRATION-0.2.0.md):
+normalize custom visibility values, audit new `no-public->private-deps` failures, and replace live
+cross-repo seed targets with tracked import snapshots.
 
 ## [0.1.4] - 2026-06-23
 
@@ -135,6 +151,7 @@ A compatibility patch for real-world committed-graph and Jujutsu workspaces. No 
 
 | Version | Date | Summary |
 |---|---|---|
+| [0.2.0](#020--2026-06-29) | 2026-06-29 | Inter-repo one-way snapshots, explicit import/export handshake, taint/declassification gates, and lattice-based local privacy policy. |
 | [0.1.4](#014--2026-06-23) | 2026-06-23 | Multi-agent/worktree status identity, repo-qualified next commands, impact proof mode, and atomic graph writes. |
 | [0.1.3](#013--2026-06-22) | 2026-06-22 | Agent guidance and npm publishing handoff are modeled in true-up's own dependency graph. |
 | [0.1.2](#012--2026-06-22) | 2026-06-22 | jj-only workspace support plus the committed-graph output fix for repos that intentionally track `.true-up/depgraph.json`. |
@@ -263,6 +280,7 @@ Every fix ships with a regression test (`tests/engine.sh` T40–T72).
 - **Determinism:** the graph is byte-stable (sorted, no timestamps); pin the tool version for a gate
   shared across machines.
 
+[0.2.0]: https://github.com/rawwerks/true-up/releases/tag/v0.2.0
 [0.1.4]: https://github.com/rawwerks/true-up/releases/tag/v0.1.4
 [0.1.3]: https://github.com/rawwerks/true-up/releases/tag/v0.1.3
 [0.1.2]: https://github.com/rawwerks/true-up/releases/tag/v0.1.2

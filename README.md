@@ -145,7 +145,8 @@ uniform `ok` boolean.
 | `true-up graph [--json]` | read-only graph dump: nodes, audiences/zones, edges, propagation, generator `via` | 0 (1 on graph errors; 2 on usage/config errors) |
 | `true-up build` (or bare `true-up`) | build the dependency graph (`out`, default `.true-up/depgraph.json`) | 0 (1 on an unresolved anchor; 2 on ill-typed config) |
 | `true-up --check [--committed]` | is the graph stale? `--committed` checks the VCS-stored graph (Git: selected-worktree index only; jj-only: `@`) | 1 if stale |
-| `true-up --impact <path\|path#fact>… [--since <ref>] [--proof]` | what becomes stale if that path/fact changes; `--proof` audits changed facts whose dependents were already edited in-range | 0 (2 on unknown target / bad ref) |
+| `true-up --impact <path\|path#fact>…` | what becomes stale if that path/fact changes (mutually exclusive with `--since`) | 0 (2 on unknown target) |
+| `true-up --impact --since <ref> [--proof]` | what remains stale for the changed set in the ref range; `--proof` audits changed facts whose dependents were already edited in-range | 0 (2 on bad ref) |
 | `true-up run [--since <ref>] [--strict]` | the loop: detect → regenerate mechanical deps → list advisory prose → verify | 1 if not green (2 under `--strict` when advisory review is pending) |
 | `true-up gate [--committed]` | one CI/pre-commit stage: `--check` + `--policy` + `--externalities` | **1 if any sub-check fails** |
 | `true-up hooks [--install\|--uninstall\|--ci] [--force]` | wire (or remove) Git hooks in a Git-backed repo, or print a CI snippet | 0 (2 if no Git hooks dir) |

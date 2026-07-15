@@ -12,6 +12,12 @@ commit pages on GitHub (`rawwerks/true-up`). No GitHub *Releases* existed before
 
 ### Development
 
+- Fixed a shared-pipe truncation the v0.2.1 synchronous-writer fix missed: under `cmd 2>&1 | reader`
+  (one pipe description shared by stdout and stderr), initializing Node's lazy stderr stream flips
+  O_NONBLOCK on the shared description and a >64 KiB payload deterministically corrupted at pipe
+  capacity (EAGAIN mid-write + an interleaved internal-error envelope). The writer now resumes from
+  the exact offset on EAGAIN; the transport regression adds a shared-description case proven red
+  against the old writer. Found by dogfooding `build --json` against a real repository's worktree.
 - Added native, deterministic one-level config composition. A small root manifest can include
   domain-owned JSON fragments; every config-consuming command uses the same zero-dependency loader,
   while flat configurations retain their prior serialized graph shape. The public docs now cover

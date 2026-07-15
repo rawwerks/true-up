@@ -29,8 +29,11 @@ mkdirSync(outputs, { recursive: true })
 // flushes in time). Pin the production boundary statically as well: a mutant that restores either
 // structured process.stdout.write or unadapted console.log must fail on every run.
 const engineSource = readFileSync(resolve(dirname(resolvedEntry), '../lib/engine.mjs'), 'utf8')
-if (!/const writeStdout = \(text\) => writeFileSync\(1, text\)/.test(engineSource)) {
-  throw new Error('entrypoint engine is missing the synchronous writeStdout(fd 1) boundary')
+if (!/offset \+= writeSync\(1, buffer, offset, buffer\.length - offset\)/.test(engineSource)) {
+  throw new Error('entrypoint engine is missing the synchronous offset-resuming writeSync(fd 1) boundary')
+}
+if (!/error\.code === 'EAGAIN'/.test(engineSource)) {
+  throw new Error('entrypoint engine writeStdout does not retry EAGAIN (nonblocking shared-pipe payloads would be truncated)')
 }
 if (!/console\.log = \(\.\.\.values\) => writeStdout\(format\(\.\.\.values\) \+ '\\n'\)/.test(engineSource)) {
   throw new Error('entrypoint engine does not route human console.log output through writeStdout')
@@ -195,6 +198,40 @@ if (epipeRun.error || epipeRun.status === 0 || !/EPIPE/.test(epipeRun.stderr || 
   throw new Error(`early pipe close did not fail loud with EPIPE: exit=${epipeRun.status} error=${epipeRun.error || ''} stderr=${epipeRun.stderr || ''}`)
 }
 
+// `cmd 2>&1 | reader` puts stdout and stderr on ONE shared pipe description. Initializing the lazy
+// process.stderr stream then flips O_NONBLOCK on that shared description, so a single write(2) of a
+// >64 KiB payload hits EAGAIN at exactly pipe capacity. The pre-fix writer threw, the crash handler
+// interleaved an internal-error envelope into the payload, and the caller saw corrupt JSON with the
+// tail dropped (found by dogfooding a 463 KB build --json against a real repo; deterministic at byte
+// 65,538). The writer must retry from the exact offset until the reader drains.
+const sharedPipeRun = spawnSync('bash', [
+  '-o', 'pipefail', '-c', '"$@" 2>&1 | cat', 'true-up-shared-pipe',
+  process.execPath, entry, '--repo', repo, 'graph', '--json',
+], {
+  cwd: repo,
+  encoding: 'buffer',
+  maxBuffer,
+  env: {
+    ...process.env,
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_SYSTEM: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+  },
+})
+if (sharedPipeRun.error || sharedPipeRun.status !== 0) {
+  throw new Error(`shared stdout+stderr pipe run failed: exit=${sharedPipeRun.status} error=${sharedPipeRun.error || ''}`)
+}
+const sharedPipeBytes = sharedPipeRun.stdout
+if (sharedPipeBytes.length <= boundary) {
+  throw new Error(`shared-pipe payload (${sharedPipeBytes.length} bytes) does not cross the ${boundary}-byte pipe boundary; the regression is not exercised`)
+}
+const sharedPipeParsed = parseOneCompleteObject(sharedPipeBytes, 'shared stdout+stderr pipe graph --json')
+const sharedPipeEnvelope = sharedPipeParsed && sharedPipeParsed.value !== undefined ? sharedPipeParsed.value : sharedPipeParsed
+if (sharedPipeEnvelope.ok !== true) throw new Error(`shared-pipe graph --json payload is not an ok envelope: ${sharedPipeBytes.subarray(0, 200).toString()}`)
+if (sharedPipeBytes.length !== Buffer.byteLength(graphRun.stdout)) {
+  throw new Error(`shared-pipe payload bytes (${sharedPipeBytes.length}) differ from reference graph --json bytes (${Buffer.byteLength(graphRun.stdout)})`)
+}
+
 let truncationRejected = false
 const exactBoundaryPrefix = Buffer.from(graphRun.stdout).subarray(0, boundary)
 if (exactBoundaryPrefix.length !== boundary) throw new Error(`could not construct exact ${boundary}-byte truncation mutant`)
@@ -221,6 +258,7 @@ const report = {
   humanDryRun,
   gate: { bytes: gate.bytes, sha256: gate.sha256, checks: gate.value.checks },
   earlyPipeClose: { exit: epipeRun.status, stderrSha256: sha256(epipeRun.stderr || ''), epipe: true },
+  sharedStderrPipe: { exit: sharedPipeRun.status, bytes: sharedPipeBytes.length, crossesBoundary: true, matchesReference: true },
   injectedTruncation: { bytes: boundary, rejected: truncationRejected },
 }
 mkdirSync(resolve(reportPath, '..'), { recursive: true })

@@ -29,15 +29,82 @@ check_tag_coherence() {
     return 0
   fi
 }
+read_latest_released_version() {
+  grep -m1 -E '^## \[[0-9]+\.[0-9]+\.[0-9]+[^]]*\]' "$1" | sed -E 's/^## \[([^]]+)\].*/\1/'
+}
+check_changelog_timeline_anchors() {
+  node - "$1" <<'NODE'
+const fs = require("fs");
+const path = process.argv[2];
+const lines = fs.readFileSync(path, "utf8").split(/\r?\n/);
+
+const headingSlugs = new Set();
+for (const line of lines) {
+  const match = line.match(/^#{1,6}\s+(.+?)\s*#*\s*$/);
+  if (!match) continue;
+  // GitHub removes punctuation, preserves literal hyphens, then maps each whitespace run to '-'.
+  // Thus `[0.2.0] - 2026-06-29` becomes `020---2026-06-29`, with three hyphens.
+  const slug = match[1]
+    .toLowerCase()
+    .replace(/<[^>]*>/g, "")
+    .replace(/[^\p{L}\p{N}\s_-]/gu, "")
+    .trim()
+    .replace(/\s+/g, "-");
+  headingSlugs.add(`#${slug}`);
+}
+
+const start = lines.findIndex((line) => /^##\s+Version timeline\s*$/.test(line));
+if (start < 0) {
+  console.error(`${path}: missing "## Version timeline" section`);
+  process.exit(1);
+}
+let end = lines.findIndex((line, index) => index > start && /^##\s+/.test(line));
+if (end < 0) end = lines.length;
+
+let links = 0;
+const broken = [];
+for (let index = start + 1; index < end; index += 1) {
+  for (const match of lines[index].matchAll(/\]\((#[^)]+)\)/g)) {
+    links += 1;
+    if (!headingSlugs.has(match[1])) broken.push(`${path}:${index + 1}: ${match[1]}`);
+  }
+}
+if (links === 0) {
+  console.error(`${path}: Version timeline contains no local anchors`);
+  process.exit(1);
+}
+if (broken.length > 0) {
+  console.error(`broken CHANGELOG timeline anchor(s):\n${broken.join("\n")}`);
+  process.exit(1);
+}
+NODE
+}
 if [ "${1:-}" = "--tag-coherence-check" ]; then
   check_tag_coherence "${2:?usage: ci.sh --tag-coherence-check <version>}"; exit $?
+fi
+if [ "${1:-}" = "--changelog-version-check" ]; then
+  found="$(read_latest_released_version "${2:?usage: ci.sh --changelog-version-check <changelog> <expected-version>}")"
+  [ "$found" = "${3:?usage: ci.sh --changelog-version-check <changelog> <expected-version>}" ]
+  exit $?
+fi
+if [ "${1:-}" = "--changelog-anchor-check" ]; then
+  check_changelog_timeline_anchors "${2:?usage: ci.sh --changelog-anchor-check <changelog>}"; exit $?
 fi
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$HERE"
 
+# Own the durable harness root instead of inheriting TMPDIR. A machine-local TMPDIR once contained an
+# unrelated, invalid `.git` marker; package fixtures below it then made Git's root probe fail before a
+# genuine non-colocated jj workspace could be recognized. The explicit ceiling makes the harness root
+# the VCS boundary, while fixture-local .git directories remain visible below it.
+CI_SCRATCH_ROOT="${TRUE_UP_CI_SCRATCH:-$HOME/scratch}"
+mkdir -p "$CI_SCRATCH_ROOT"
+WORK="$(mktemp -d "$CI_SCRATCH_ROOT/true-up-ci.XXXXXX")"
+GIT_CEILING_DIRECTORIES="${GIT_CEILING_DIRECTORIES:+$GIT_CEILING_DIRECTORIES:}$CI_SCRATCH_ROOT"
+export GIT_CEILING_DIRECTORIES
+
 # Single trap covers every temp artifact on any exit path (success, failure, or signal).
-WORK="$(mktemp -d)"
 TGZ=""
 cleanup() { rm -rf "$WORK"; [ -n "$TGZ" ] && rm -f "$TGZ" || true; }
 trap cleanup EXIT INT TERM
@@ -80,6 +147,37 @@ fi
 step "1/8" "fixture suite + self-gate + contract --check (npm test)"
 npm test
 
+# A full clone can accidentally hide a source-test dependency on historical Git objects. Rebuild the
+# focused composition CLI source boundary inside a fresh one-commit repository, prove both audited old
+# revisions are absent, then run the exact suite from that history-free tree. The immutable runtime
+# fixtures are source-test assets only; they intentionally remain outside the published npm allowlist.
+HISTORY_FREE_SOURCE="$WORK/history-free-source"
+mkdir -p "$HISTORY_FREE_SOURCE/tests/fixtures"
+cp -R "$HERE/bin" "$HERE/lib" "$HISTORY_FREE_SOURCE/"
+cp "$HERE/package.json" "$HISTORY_FREE_SOURCE/"
+cp "$HERE/tests/config-composition-cli.mjs" "$HISTORY_FREE_SOURCE/tests/"
+cp -R "$HERE/tests/fixtures/pre-composition" "$HISTORY_FREE_SOURCE/tests/fixtures/"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$HISTORY_FREE_SOURCE" init -q
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$HISTORY_FREE_SOURCE" add -A
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$HISTORY_FREE_SOURCE" \
+  -c user.name='true-up history-free CI' -c user.email=tests@true-up.invalid commit -qm snapshot
+for old_revision in \
+  4eb0e4ddf4eda309857a97a317424c2aea664250 \
+  7844b4f77f4cd74f7026edf8f7bf6811c6a11e65; do
+  if ( unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_OBJECT_DIRECTORY
+       git -C "$HISTORY_FREE_SOURCE" cat-file -e "$old_revision^{commit}" 2>/dev/null ); then
+    fail "history-free source control unexpectedly contains old revision $old_revision"
+  fi
+done
+if ! ( unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_OBJECT_DIRECTORY
+       TRUE_UP_CONFIG_CLI_TEST_SCRATCH="$WORK/history-free-cli-fixtures" \
+         node "$HISTORY_FREE_SOURCE/tests/config-composition-cli.mjs" ) \
+  | tee "$WORK/history-free-cli.log"; then
+  fail "config composition CLI suite failed from a history-free source snapshot"
+fi
+grep -qF 'config composition CLI: 9/9 passed; fixtures cleaned=true' "$WORK/history-free-cli.log" \
+  || fail "history-free config composition CLI suite did not complete all 9 cases"
+
 # ---------------------------------------------------------------------------
 step "2/8" "pack tarball (isolated, never left in repo)"
 npm pack --pack-destination "$WORK" >/dev/null
@@ -103,13 +201,51 @@ fi
 BIN="$SANDBOX/node_modules/.bin/true-up"
 [ -x "$BIN" ] || fail "installed bin not found/executable: $BIN"
 [ -f "$SANDBOX/node_modules/true-up/lib/engine.mjs" ] || fail "lib/engine.mjs missing from installed package"
+[ -f "$SANDBOX/node_modules/true-up/lib/config.mjs" ] || fail "lib/config.mjs missing from installed package"
 [ -f "$SANDBOX/node_modules/true-up/lib/symbols.mjs" ] || fail "lib/symbols.mjs missing from installed package"
+check_changelog_timeline_anchors "$SANDBOX/node_modules/true-up/CHANGELOG.md" \
+  || fail "clean-installed package contains broken CHANGELOG Version timeline anchors"
 
 # ---------------------------------------------------------------------------
-step "4/8" "LEAN check — tree-sitter grammars must NOT be auto-installed"
+step "4/8" "LEAN/RICH check — optional symbol runtime fails loud when absent and works when present"
 if [ -e "$SANDBOX/node_modules/web-tree-sitter" ] || [ -e "$SANDBOX/node_modules/tree-sitter-wasms" ]; then
   fail "tree-sitter grammars were pulled into a lean install (peerDependencies + peerDependenciesMeta{optional:true} should keep them out)"
 fi
+LEAN_SYMBOLS="$WORK/lean-symbols-missing"
+mkdir -p "$LEAN_SYMBOLS"
+git -C "$LEAN_SYMBOLS" init -q
+git -C "$LEAN_SYMBOLS" config user.email t@t >/dev/null
+git -C "$LEAN_SYMBOLS" config user.name t >/dev/null
+printf '%s\n' '{ "symbols": true, "seed": [{ "from": "README.md", "to": "app.py#main" }] }' > "$LEAN_SYMBOLS/.true-up.json"
+printf '%s\n' 'def main():' '    return 0' > "$LEAN_SYMBOLS/app.py"
+printf '%s\n' '# lean optional-dependency fixture' > "$LEAN_SYMBOLS/README.md"
+git -C "$LEAN_SYMBOLS" add -A && git -C "$LEAN_SYMBOLS" commit -qm init
+set +e
+lean_symbols_json="$($BIN --repo "$LEAN_SYMBOLS" --no-write --json 2>"$WORK/lean-symbols-missing.stderr")"; lean_symbols_rc=$?
+set -e
+{ [ "$lean_symbols_rc" -eq 2 ] && printf '%s' "$lean_symbols_json" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===false&&d.kind==="symbols-unavailable"?0:1)'; } \
+  || fail "lean installed package did not fail loud with kind=symbols-unavailable when symbols were enabled (rc=$lean_symbols_rc)"
+
+# Repeat the same fixture through the installed tarball with the exact-pinned optional runtime present.
+# Copying the already-bootstrapped dependencies keeps this proof offline and leaves the lean sandbox
+# intact for every subsequent package-boundary test. The true-up entry itself must still resolve inside
+# the rich clean-install tree; only the optional peer packages come from the verified bootstrap.
+RICH_SANDBOX="$WORK/sandbox-with-symbols"
+cp -R "$SANDBOX" "$RICH_SANDBOX"
+for dep in web-tree-sitter tree-sitter-wasms; do
+  [ -d "$HERE/node_modules/$dep" ] || fail "exact-pinned optional dependency missing after bootstrap: $dep"
+  cp -R "$HERE/node_modules/$dep" "$RICH_SANDBOX/node_modules/"
+done
+RICH_BIN="$RICH_SANDBOX/node_modules/.bin/true-up"
+[ -x "$RICH_BIN" ] || fail "rich installed bin not found/executable: $RICH_BIN"
+case "$(realpath "$RICH_BIN")" in
+  "$RICH_SANDBOX"/*) ;;
+  *) fail "rich installed true-up entry escaped its clean sandbox" ;;
+esac
+rich_symbols_json="$($RICH_BIN --repo "$LEAN_SYMBOLS" --no-write --json 2>"$WORK/rich-symbols.stderr")" \
+  || { cat "$WORK/rich-symbols.stderr" >&2; fail "installed tarball failed with exact-pinned symbol dependencies present"; }
+printf '%s' "$rich_symbols_json" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===true&&d.graph?.nodes?.["fact:app.py#main"]?0:1)' \
+  || fail "rich installed package did not extract the enabled app.py#main symbol fact"
 
 # ---------------------------------------------------------------------------
 step "5/8" "run-from-tarball against a throwaway repo (build/check/gate/no-write/capabilities)"
@@ -142,6 +278,39 @@ git -C "$TARGET2" add -A && git -C "$TARGET2" commit -qm init
   || fail "--no-write --json did not report wrote:false"
 [ ! -d "$TARGET2/.true-up" ] || fail "--no-write created .true-up/ (statelessness violated)"
 
+# The source entries are covered in tests/engine.sh. Re-run the dedicated stdout, VCS-read, and JSON
+# envelope oracles against the CLEAN INSTALLED tarball entry so package boundaries cannot mask drift.
+node "$HERE/tests/large-json-transport.mjs" "$BIN" "$WORK/large-json-transport-installed" "$WORK/large-json-transport-installed.json" >/dev/null \
+  || fail "installed tarball entry truncated or corrupted >64 KiB structured/human output"
+node "$HERE/tests/large-vcs-output.mjs" "$BIN" "$WORK/large-vcs-output-installed" "$WORK/large-vcs-output-installed.json" >/dev/null \
+  || fail "installed tarball entry lost or false-cleaned >1 MiB VCS output"
+node "$HERE/tests/config-composition-package.mjs" \
+  --entry "$BIN" \
+  --scratch "$WORK/config-composition-package-installed" \
+  --report "$WORK/config-composition-package-installed.json" \
+  >"$WORK/config-composition-package-installed.stdout" 2>"$WORK/config-composition-package-installed.stderr" \
+  || { cat "$WORK/config-composition-package-installed.stderr" >&2; fail "installed tarball failed native composition positive/negative conformance"; }
+PACKAGED_EXAMPLE="$WORK/packaged-composition-example"
+cp -R "$SANDBOX/node_modules/true-up/examples/config-composition" "$PACKAGED_EXAMPLE"
+git -C "$PACKAGED_EXAMPLE" init -q
+git -C "$PACKAGED_EXAMPLE" config user.email t@t >/dev/null
+git -C "$PACKAGED_EXAMPLE" config user.name t >/dev/null
+git -C "$PACKAGED_EXAMPLE" add -A && git -C "$PACKAGED_EXAMPLE" commit -qm init
+"$BIN" --repo "$PACKAGED_EXAMPLE" --no-write --json | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const g=d.graph||{};const sources=(g.configSources||[]).map(x=>x.path);process.exit(d.ok===true&&d.wrote===false&&g.composition?.fragmentCount===2&&sources.includes("config/true-up/core.json")&&sources.includes("config/true-up/docs.json")&&g.nodes?.["fact:data/commands.json#commands.build"]?0:1)' \
+  || fail "packaged config-composition example did not build as a coherent no-write graph"
+[ ! -d "$PACKAGED_EXAMPLE/.true-up" ] || fail "packaged config-composition example wrote cache state under --no-write"
+# The envelope helper derives its entry from its own checkout root. Assemble that root entirely from
+# the clean installed package (plus the source-only harness/docs oracle) so no source engine can mask
+# a packaging-boundary regression.
+JSON_ENVELOPE_INSTALLED="$WORK/json-envelope-contract-installed-root"
+mkdir -p "$JSON_ENVELOPE_INSTALLED/tests"
+cp "$HERE/tests/json-envelope-contract.mjs" "$JSON_ENVELOPE_INSTALLED/tests/"
+cp "$HERE/AGENTS.md" "$JSON_ENVELOPE_INSTALLED/"
+cp "$SANDBOX/node_modules/true-up/package.json" "$JSON_ENVELOPE_INSTALLED/"
+cp -R "$SANDBOX/node_modules/true-up/bin" "$SANDBOX/node_modules/true-up/lib" "$JSON_ENVELOPE_INSTALLED/"
+TRUE_UP_JSON_ENVELOPE_SCRATCH="$WORK/json-envelope-contract-installed" node "$JSON_ENVELOPE_INSTALLED/tests/json-envelope-contract.mjs" >/dev/null \
+  || fail "installed tarball entry violated the uniform JSON envelope contract"
+
 # ---------------------------------------------------------------------------
 step "6/8" "negative gate check — mutated anchor must report STALE (exit 1)"
 printf '%s\n' 'def add(a, b):  # true-up:anchor id=add-impl' '    return a + b + 0  # true-up:end' > "$TARGET/calc.py"
@@ -152,22 +321,32 @@ fi
 # ---------------------------------------------------------------------------
 step "7/8" "tarball hygiene — no dev cruft, all runtime files present"
 LISTING="$(tar tzf "$TGZ")"
-if printf '%s\n' "$LISTING" | grep -Eq '(^|/)(tests/|\.github/|AGENTS\.md|bun\.lock|\.true-up\.json|meta/build-contract\.mjs)'; then
-  printf '%s\n' "$LISTING" | grep -E '(tests/|\.github/|AGENTS\.md|bun\.lock|\.true-up\.json|build-contract)' >&2
+if printf '%s\n' "$LISTING" | grep -Eq '(^|/)(tests/|\.github/|AGENTS\.md|bun\.lock|meta/build-contract\.mjs)|^package/\.true-up\.json$'; then
+  printf '%s\n' "$LISTING" | grep -E '(tests/|\.github/|AGENTS\.md|bun\.lock|build-contract|^package/\.true-up\.json$)' >&2
   fail "tarball ships dev cruft (add/fix the \"files\" allowlist)"
 fi
-for f in package/bin/true-up package/lib/engine.mjs package/lib/symbols.mjs package/README.md package/LICENSE package/CHANGELOG.md; do
+for f in package/bin/true-up package/lib/config.mjs package/lib/engine.mjs package/lib/symbols.mjs package/README.md package/LICENSE package/CHANGELOG.md; do
   printf '%s\n' "$LISTING" | grep -qx "$f" || fail "tarball is missing required runtime file: $f"
 done
 for f in package/workflows/README.md package/workflows/maintenance.workflow.js package/workflows/audit.workflow.js; do
   printf '%s\n' "$LISTING" | grep -qx "$f" || fail "tarball is missing required external-agent workflow file: $f"
 done
+for f in \
+  package/examples/config-composition/.true-up.json \
+  package/examples/config-composition/README.md \
+  package/examples/config-composition/config/true-up/core.json \
+  package/examples/config-composition/config/true-up/docs.json \
+  package/examples/config-composition/data/commands.json \
+  package/examples/config-composition/docs/commands.md; do
+  printf '%s\n' "$LISTING" | grep -qx "$f" || fail "tarball is missing required composed-config example file: $f"
+done
 
 # ---------------------------------------------------------------------------
 step "8/8" "version coherence — package.json == CHANGELOG top, and (on publish) HEAD is tagged"
 PKG_VER="$(node -p 'require("./package.json").version')"
-CHANGE_VER="$(grep -m1 -E '^## \[' CHANGELOG.md | sed -E 's/^## \[([^]]+)\].*/\1/')"
+CHANGE_VER="$(read_latest_released_version CHANGELOG.md)"
 [ "$PKG_VER" = "$CHANGE_VER" ] || fail "version mismatch: package.json=$PKG_VER CHANGELOG=$CHANGE_VER"
+check_changelog_timeline_anchors CHANGELOG.md || fail "source CHANGELOG Version timeline contains broken local anchors"
 # TAG COHERENCE: defined at the top of this script (check_tag_coherence) so the guard is one source of
 # truth, also reachable via `ci.sh --tag-coherence-check <ver>` for the hermetic regression test. It
 # prints the WARN itself on the dev path and the block reason on the publish path; the `|| fail` adds

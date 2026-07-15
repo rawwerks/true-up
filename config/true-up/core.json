@@ -1,0 +1,19 @@
+{
+  "_comment": "Generated contract steward facts used by marker-free documentation edges.",
+  "facts": {
+    "meta/contract.json": [
+      [
+        "commands",
+        "name"
+      ],
+      [
+        "agent_guidance",
+        "name"
+      ],
+      [
+        "config_composition",
+        "name"
+      ]
+    ]
+  }
+}

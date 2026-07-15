@@ -1,0 +1,1084 @@
+{
+  "_comment": "Marker-free causal edges for docs, code, tests, release surfaces, and self-dogfood.",
+  "seed": [
+    {
+      "from": "meta/contract.json",
+      "to": "bin/true-up",
+      "kind": "generated-from",
+      "via": "meta/build-contract.mjs"
+    },
+    {
+      "from": "meta/contract.json",
+      "to": "lib/engine.mjs",
+      "kind": "generated-from",
+      "via": "meta/build-contract.mjs"
+    },
+    {
+      "from": "meta/contract.json",
+      "to": "lib/config.mjs",
+      "kind": "generated-from",
+      "via": "meta/build-contract.mjs"
+    },
+    {
+      "from": "meta/contract.json",
+      "to": "meta/build-contract.mjs",
+      "kind": "generated-from",
+      "via": "meta/build-contract.mjs"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#commands.status"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#commands.graph"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#commands.build"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#commands.no-args"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#commands.--check"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#commands.--impact"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#commands.--policy"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#commands.--externalities"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#commands.--verify-scope"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#commands.run"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#commands.gate"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#commands.hooks"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#commands.export"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#commands.init"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#commands.capabilities"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#commands.robot-docs"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#commands.--version"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#commands.--help"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#agent_guidance.declared-seed-edge"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "lib/engine.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "examples/true-up.config.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "examples/config-composition/README.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "examples/config-composition/.true-up.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "examples/config-composition/config/true-up/core.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "examples/config-composition/config/true-up/docs.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": ".true-up.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "config/true-up/core.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "config/true-up/dependencies.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "config/true-up/zones.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": ".gitignore",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "meta/contract.json#agent_guidance.declared-seed-edge"
+    },
+    {
+      "from": "README.md",
+      "to": "docs/CONFIG.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": ".true-up.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": "config/true-up/core.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": "config/true-up/dependencies.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": "config/true-up/zones.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": ".gitignore",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": "install.sh",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": "package.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": "examples/config-composition/README.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": "workflows/README.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "README.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "docs/CONFIG.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "meta/contract.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": ".true-up.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "config/true-up/core.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "config/true-up/dependencies.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "config/true-up/zones.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "workflows/README.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "examples/config-composition/README.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "README.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "SKILL.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "docs/CONFIG.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": ".true-up.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "config/true-up/core.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "config/true-up/dependencies.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "config/true-up/zones.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "examples/config-composition/README.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "meta/contract.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "meta/build-contract.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "lib/engine.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "lib/symbols.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "tests/engine.sh",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "tests/large-json-transport.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "tests/large-vcs-output.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "tests/json-envelope-contract.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "tests/config-composition.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "tests/config-composition-cli.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "tests/fixtures/pre-composition/README.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "tests/config-composition-worktrees.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "tests/config-composition-adversarial.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "tests/config-composition-fuzz.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "tests/config-composition-mutations.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "tests/config-composition-capabilities.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "tests/config-composition-package.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "lib/config.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "scripts/ci.sh",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "PUBLISHING.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "package.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "workflows/README.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "workflows/maintenance.workflow.js",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "workflows/audit.workflow.js",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "PUBLISHING.md",
+      "to": "package.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "PUBLISHING.md",
+      "to": "bun.lock",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "PUBLISHING.md",
+      "to": "CHANGELOG.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "PUBLISHING.md",
+      "to": "scripts/ci.sh",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "PUBLISHING.md",
+      "to": "install.sh",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "CHANGELOG.md",
+      "to": "package.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "CHANGELOG.md",
+      "to": "meta/contract.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "CHANGELOG.md",
+      "to": "lib/engine.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "CHANGELOG.md",
+      "to": "tests/large-json-transport.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "CHANGELOG.md",
+      "to": "tests/large-vcs-output.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "CHANGELOG.md",
+      "to": "tests/json-envelope-contract.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "CHANGELOG.md",
+      "to": "tests/config-composition.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "CHANGELOG.md",
+      "to": "tests/config-composition-cli.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "CHANGELOG.md",
+      "to": "tests/config-composition-worktrees.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "CHANGELOG.md",
+      "to": "tests/config-composition-adversarial.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "CHANGELOG.md",
+      "to": "tests/config-composition-fuzz.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "CHANGELOG.md",
+      "to": "tests/config-composition-mutations.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "CHANGELOG.md",
+      "to": "tests/config-composition-capabilities.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "CHANGELOG.md",
+      "to": "tests/config-composition-package.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "CHANGELOG.md",
+      "to": "examples/config-composition/README.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "CHANGELOG.md",
+      "to": "lib/config.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "CHANGELOG.md",
+      "to": "agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "scripts/ci.sh",
+      "to": "package.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "scripts/ci.sh",
+      "to": "tests/engine.sh",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "scripts/ci.sh",
+      "to": "tests/large-json-transport.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "scripts/ci.sh",
+      "to": "tests/large-vcs-output.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "scripts/ci.sh",
+      "to": "tests/json-envelope-contract.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "scripts/ci.sh",
+      "to": "tests/config-composition-adversarial.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "scripts/ci.sh",
+      "to": "tests/config-composition-fuzz.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "scripts/ci.sh",
+      "to": "tests/config-composition-mutations.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "scripts/ci.sh",
+      "to": "tests/config-composition-capabilities.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "scripts/ci.sh",
+      "to": "tests/config-composition-package.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "scripts/ci.sh",
+      "to": "examples/config-composition/.true-up.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "scripts/ci.sh",
+      "to": "examples/config-composition/README.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "scripts/ci.sh",
+      "to": "examples/config-composition/config/true-up/core.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "scripts/ci.sh",
+      "to": "examples/config-composition/config/true-up/docs.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "scripts/ci.sh",
+      "to": "examples/config-composition/data/commands.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "scripts/ci.sh",
+      "to": "examples/config-composition/docs/commands.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "scripts/ci.sh",
+      "to": "meta/build-contract.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/engine.sh",
+      "to": "tests/large-json-transport.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/engine.sh",
+      "to": "tests/large-vcs-output.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/engine.sh",
+      "to": "tests/json-envelope-contract.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/engine.sh",
+      "to": "tests/config-composition.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/engine.sh",
+      "to": "tests/config-composition-cli.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/engine.sh",
+      "to": "tests/config-composition-worktrees.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/engine.sh",
+      "to": "tests/config-composition-adversarial.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/engine.sh",
+      "to": "tests/config-composition-fuzz.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/engine.sh",
+      "to": "tests/config-composition-mutations.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/engine.sh",
+      "to": "tests/config-composition-capabilities.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/engine.sh",
+      "to": "tests/config-composition-package.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/engine.sh",
+      "to": ".true-up.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/engine.sh",
+      "to": "config/true-up/core.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/engine.sh",
+      "to": "config/true-up/dependencies.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/engine.sh",
+      "to": "config/true-up/zones.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/config-composition.mjs",
+      "to": "lib/config.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/config-composition-cli.mjs",
+      "to": "lib/config.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/config-composition-cli.mjs",
+      "to": "lib/engine.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/config-composition-cli.mjs",
+      "to": "tests/fixtures/pre-composition/README.md",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/config-composition-worktrees.mjs",
+      "to": "lib/engine.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/config-composition-adversarial.mjs",
+      "to": "lib/config.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/config-composition-adversarial.mjs",
+      "to": "lib/engine.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/config-composition-fuzz.mjs",
+      "to": "lib/config.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/config-composition-mutations.mjs",
+      "to": "lib/config.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/config-composition-mutations.mjs",
+      "to": "lib/engine.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/config-composition-capabilities.mjs",
+      "to": "lib/config.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/config-composition-capabilities.mjs",
+      "to": "lib/engine.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/config-composition-capabilities.mjs",
+      "to": "meta/build-contract.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/config-composition-capabilities.mjs",
+      "to": "meta/contract.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/config-composition-package.mjs",
+      "to": "lib/config.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "tests/config-composition-package.mjs",
+      "to": "lib/engine.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md",
+      "to": "tests/large-json-transport.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md",
+      "to": "tests/large-vcs-output.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md",
+      "to": "tests/json-envelope-contract.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md",
+      "to": "tests/config-composition.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md",
+      "to": "tests/config-composition-cli.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md",
+      "to": "tests/config-composition-worktrees.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md",
+      "to": "tests/config-composition-adversarial.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md",
+      "to": "tests/config-composition-fuzz.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md",
+      "to": "tests/config-composition-mutations.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md",
+      "to": "tests/config-composition-capabilities.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md",
+      "to": "tests/config-composition-package.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md",
+      "to": "lib/config.mjs",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "workflows/README.md",
+      "to": "workflows/maintenance.workflow.js",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "workflows/README.md",
+      "to": "workflows/audit.workflow.js",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#config_composition.activation",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#config_composition.compatibility",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#config_composition.error_codes",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#config_composition.error_contract",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#config_composition.includes",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#config_composition.inspection",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#config_composition.keys",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#config_composition.merge",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#config_composition.migration",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#config_composition.paths",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#config_composition.schema_version",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "README.md",
+      "to": "meta/contract.json#config_composition.workspace",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "meta/contract.json#config_composition.activation",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "meta/contract.json#config_composition.compatibility",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "meta/contract.json#config_composition.error_codes",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "meta/contract.json#config_composition.error_contract",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "meta/contract.json#config_composition.includes",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "meta/contract.json#config_composition.inspection",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "meta/contract.json#config_composition.keys",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "meta/contract.json#config_composition.merge",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "meta/contract.json#config_composition.migration",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "meta/contract.json#config_composition.paths",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "meta/contract.json#config_composition.schema_version",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "SKILL.md",
+      "to": "meta/contract.json#config_composition.workspace",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "meta/contract.json#config_composition.activation",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "meta/contract.json#config_composition.compatibility",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "meta/contract.json#config_composition.error_codes",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "meta/contract.json#config_composition.error_contract",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "meta/contract.json#config_composition.includes",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "meta/contract.json#config_composition.inspection",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "meta/contract.json#config_composition.keys",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "meta/contract.json#config_composition.merge",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "meta/contract.json#config_composition.migration",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "meta/contract.json#config_composition.paths",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "meta/contract.json#config_composition.schema_version",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/CONFIG.md",
+      "to": "meta/contract.json#config_composition.workspace",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "meta/contract.json#config_composition.activation",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "meta/contract.json#config_composition.compatibility",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "meta/contract.json#config_composition.error_codes",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "meta/contract.json#config_composition.error_contract",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "meta/contract.json#config_composition.includes",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "meta/contract.json#config_composition.inspection",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "meta/contract.json#config_composition.keys",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "meta/contract.json#config_composition.merge",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "meta/contract.json#config_composition.migration",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "meta/contract.json#config_composition.paths",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "meta/contract.json#config_composition.schema_version",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "meta/contract.json#config_composition.workspace",
+      "kind": "derives-facts-from"
+    }
+  ]
+}

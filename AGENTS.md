@@ -13,16 +13,30 @@ internal corpus where it was proven; this repo is the standalone, repo-agnostic 
 ```
 bin/true-up        thin CLI entry → lib/engine.mjs
 lib/engine.mjs     the engine: build / --check[ --committed] / --impact / --policy / --externalities / --verify-scope / run / export / init / capabilities / --version / --help (every read-side cmd takes --json)
+lib/config.mjs     zero-dependency config loader: legacy parity + deterministic one-level composition;
+                   consumed once by every config-dependent CLI invocation
 lib/symbols.mjs    Tier 2 (OPTIONAL): tree-sitter symbol extraction. Static-imported but loads
                    web-tree-sitter LAZILY (only when .true-up.json sets "symbols") — the zero-dep core never touches it
 tests/engine.sh    fixture-based regression harness (synthesizes a target repo, runs the real CLI)
+tests/config-composition.mjs  pure loader contract: schema/order/barriers/paths/bounds/provenance/properties
+tests/config-composition-cli.mjs  real-CLI parity, fail-closed, version-skew, and subprocess-boundary gate
+tests/config-composition-worktrees.mjs  Git/jj staging, race, filter, and worktree-isolation gate
+tests/config-composition-adversarial.mjs  compound boundary/error-precedence and atomic-state corpus
+tests/config-composition-fuzz.mjs  fixed-seed production-loader metamorphic/property campaign
+tests/config-composition-mutations.mjs  named production mutation matrix with reverted-green controls
+tests/config-composition-capabilities.mjs  HELP/ROBOT/capabilities/generated-steward composition contract
+tests/config-composition-package.mjs  explicit-entry source/installed-package composition conformance
+tests/large-json-transport.mjs  source/packed guard for complete >64 KiB structured + human stdout, EPIPE, and installed-entry symlinks
+tests/large-vcs-output.mjs  bounded/fail-loud VCS reads plus opaque Git/jj path transport
+tests/json-envelope-contract.mjs  command-inventory guard for the uniform `--json` envelope contract
 docs/CONFIG.md     the .true-up.json schema + the marker/anchor conventions
-examples/          an example .true-up.json
+examples/          flat and runnable multi-file composed configuration examples
 meta/build-contract.mjs  generates meta/contract.json from `true-up capabilities`; --check gates engine→contract drift
-meta/contract.json the command + agent-guidance STEWARD (generated, committed) — true-up trues itself against it
+meta/contract.json the command + agent-guidance + config-composition STEWARD (generated, committed)
 workflows/         external-agent maintenance/audit workflow templates; shipped in npm because SKILL.md links them
 package.json       npm allowlist + optional tree-sitter peer/dev deps (EXACT-pinned, Tier 2 only); posttest = self-gate
-.true-up.json      true-up's own config — it trues up ITSELF, MARKER-FREE (steward + sidecar seed; see "Self-dogfood")
+.true-up.json      sentinel-only root for true-up's own marker-free composed self-config
+config/true-up/    load-bearing core facts, dependency edges, and audience/zone fragments
 ```
 
 ## CLI surface + exit contract (the gates exit nonzero)
@@ -35,7 +49,7 @@ Verify against `lib/engine.mjs` before changing any of this.
 - `true-up build` — explicit verb for the bare build below (discoverable alias).
 - `true-up` (no args) — (re)build + write the graph JSON to `out` (default `.true-up/depgraph.json`). Exit 1 on an unresolved anchor (fail-loud); otherwise exit 0. Prints a NOTICE when no facts/edges are declared (the drift layer is INERT).
 - `true-up --check` — working-tree freshness: exit 1 if the ON-DISK graph differs from a fresh rebuild.
-- `true-up --check --committed` — the real drift gate: exit 1 if the VCS-stored graph blob differs from a fresh rebuild. Git prefers the staged blob for pre-commit, else `HEAD:` for CI; jj-only reads `@`. A missing/untracked graph fails (false assurance is worse than none).
+- `true-up --check --committed` — the real drift gate: exit 1 if the VCS-stored graph blob differs from a fresh rebuild. Git reads the selected worktree's **index blob only**; in clean CI the index mirrors `HEAD`. A staged deletion therefore stays missing and must never fall back to `HEAD`. jj-only reads `@`. A missing/untracked graph fails (false assurance is worse than none).
 - `true-up --impact <path|path#fact>… [--since <ref>] [--proof]` — who is made stale; exit 0. It must list every dependent artifact; do not collapse generated outputs just because they share one generator `via`. With `--since`, the default view is "remaining stale"; `--proof` adds an audit map from changed facts/sources to dependents and marks whether dependents changed in the same range. A bad Git ref / jj revset exits 2 (not a silent "0 dependents"); no graph on disk exits 2.
 - `true-up --policy [--report]` — zone/visibility lint. **EXIT 1 on violations**; `--report` forces exit 0 (report-only).
 - `true-up --externalities [--report]` — machine-local-path leak scan. **EXIT 1 on leaks**; `--report` forces exit 0.
@@ -45,11 +59,19 @@ Verify against `lib/engine.mjs` before changing any of this.
 - `true-up hooks [--install|--uninstall|--ci] [--force]` — Git-backed per-repo adoption: writes/removes executable `pre-commit` + `pre-push` (resolved via `git rev-parse --git-path hooks`, honoring `core.hooksPath`/worktrees) carrying the `managed-by: true-up-hooks` marker; idempotent; backs up a pre-existing foreign hook to `*.bak` **once** (never clobbers an existing `.bak`), and `--uninstall` **restores** that backup. SAFETY: if the resolved hooks dir is **outside this repo's `.git`** (a shared/global `core.hooksPath`), `--install`/`--uninstall` **REFUSE** (exit 2) with a loud message unless `--force` — this prevents silently rewiring every repo on the machine (the incident that overwrote a dev's global hooks during `npm test`; the test harness is now git-config-isolated too). Hooks **fail closed** if `true-up` is absent. `--ci` prints a version-pinned GH Actions snippet. Exit 2 if there is no Git hooks dir. (pre-push too: `jj commit` bypasses pre-commit; non-colocated jj has no Git hooks dir for this command.)
 - `true-up export --audience <public|internal|private|secret>` — emits a one-way inter-repo import snapshot from explicit `.true-up.json` `exports`. The source repo controls the allowlist; crossing from higher-visibility source material to a lower audience requires per-export `"declassify": true`. Consumers must track/stage a regular in-repo snapshot, pin `repoId` and `audience` under `imports`, then seed local advisory edges to `@alias:fact`. No live sibling-repo paths, symlink snapshots, raw values, source paths, commit ids, or executable imported generator metadata are allowed. Non-public import taint propagates through local files/facts and blocks public re-export.
 - `true-up init` — scaffold a starter `.true-up.json`; **idempotent** (exit 0): never overwrites an existing config, and "already scaffolded" is success — exit 1 is reserved for gate violations everywhere else.
-- `true-up capabilities` — machine-readable contract (commands, flags, exit-code dictionary, **`quickstart` task→command map, `entrypoints`, `cmd_flags`** = the live per-command flag map, `error_codes`); always JSON; exit 0. Axiom 9: an agent reads the contract from the tool, not out-of-band.
+- `true-up capabilities` — machine-readable contract (commands, flags, exit-code dictionary, **`quickstart` task→command map, `entrypoints`, `cmd_flags`** = the live per-command flag map, `error_codes`, and versioned `config_composition` schema/merge/path/worktree/error contract); always JSON; exit 0. Axiom 9: an agent reads the contract from the tool, not out-of-band.
 - `true-up robot-docs` (alias `--robot-help`) — paste-ready **in-tool agent handbook** (task→command recipes); writes nothing; works outside any repo; exit 0. `capabilities` is the machine CONTRACT, this is the QUICKSTART.
 - `true-up --version | -v | version` — print the version; exit 0.
 - `true-up --help | -h | help` — prints the command table (with a COMMON TASKS block) and **writes nothing** (exit 0). An **unknown command/flag exits 2 and writes nothing** (with a `did you mean: …` suggestion that consults the synonym map, then cross-prefix Levenshtein, then global flags) — never a silent fall-through to build+write. A **stray positional on a no-positional command exits 2** (Axiom 14 — `gate zzz` must not silently PASS).
-- **`--json` on every read-side command** — a single JSON object on **stdout** (data only; diagnostics on stderr, Axiom 4) so workflows parse the result instead of regex-scraping. Every envelope carries a uniform **`ok`** (boolean pass/fail) and **`_v`** (contract version); error paths emit `{ok:false, kind, …}` on stdout too. The exit code is unchanged by `--json`.
+- **`--json` on every documented JSON-capable command** — the required contract is one JSON object on
+  **stdout** (data only; diagnostics on stderr, Axiom 4), always carrying **`ok`** (boolean pass/fail)
+  and **`_v`** (contract version); error paths carry `{ok:false, kind, …}` and preserve the command's
+  exit code. `tests/json-envelope-contract.mjs` derives coverage from live capabilities and currently
+  inventories 59 success/error cases: canonical commands, documented aliases, hooks modes, absent
+  optional symbol dependencies, usage/config/fail-loud diagnostics, and missing-value,
+  trailing-global, and stray-positional guards. **Wave 0B verification is complete:** the inventory
+  passes both source and clean-installed-package entries, the full source/CI lifecycles pass, and an
+  independent package audit found no remaining Critical/High/Medium gap.
 
 "The workflow today" = `true-up run`. The agentic prose-rewrite `/workflow` is roadmap, not built (see Roadmap).
 
@@ -79,8 +101,9 @@ Verify against `lib/engine.mjs` before changing any of this.
    content, never a DB. Committing the graph blob is **optional**: `.gitignore` ships ignoring
    `.true-up/`, and `--check` (working-tree freshness) works whether or not you commit it. For repos
    that DO commit/track the graph, `--check --committed` is the drift gate that catches "source changed
-   without the regenerated graph" (a missing/untracked graph fails it). Git mode prefers the staged blob,
-   then `HEAD`; jj-only mode reads `@`. Do not claim the graph "is a committed JSON file" unconditionally
+   without the regenerated graph" (a missing/untracked graph fails it). Git mode reads only the selected
+   worktree's index blob (clean CI's index mirrors `HEAD`); it never rescues a staged deletion from
+   `HEAD`. jj-only mode reads `@`. Do not claim the graph "is a committed JSON file" unconditionally
    — that was an overclaim; it contradicted the shipped `.gitignore`. (A derived SQLite cache is a future
    option *only* for query-at-scale — never the source of truth.)
 8. **Read-only wrt content (the write invariant).** true-up NEVER modifies/creates/deletes a content
@@ -112,8 +135,34 @@ Verify against `lib/engine.mjs` before changing any of this.
 
 ## Harness
 
-Tests ARE the harness: every invariant and every past incident is a case in `tests/engine.sh`.
-`npm test` runs it (sub-minute, fixture-based). When you fix a bug, add the test that catches it.
+Tests ARE the harness: `tests/engine.sh` is the fixture orchestrator, and dedicated helpers cover
+large stdout transport, large VCS reads, and the JSON-envelope inventory. `npm test` runs the complete
+source-entry set; local CI repeats package-boundary cases against the clean installed tarball. When you
+fix a bug, add the deterministic test that catches it.
+
+The composition T80 family is split across the pure loader, real-CLI, Git/jj/worktree, compound
+adversarial, fixed-seed property, production-mutation, machine-contract, and package-boundary suites
+listed above. All eight run in the standard source lifecycle; local CI repeats the package harness
+against a clean tarball install with optional dependencies omitted and repeats the real-CLI suite from
+a freshly initialized one-commit source tree that provably lacks both historical runtime objects. Keep
+the pure loader importable without dispatching the CLI, computing `OUT`, reading a graph, or writing
+anything. The installed harness must use the explicit supplied entry and verify its `bin/`,
+`lib/engine.mjs`, and `lib/config.mjs` adjacency; it must never fall back to the source checkout or
+`PATH`.
+
+Source tests must also be reproducible from a signed, history-free source snapshot. A regression may
+not fetch an older runtime with `git show`/`git archive` or otherwise assume that a full clone's object
+database is present. The exact pre-composition runtimes used by the `zones:null` compatibility test are
+offline fixtures under `tests/fixtures/pre-composition/`: the suite pins the compressed archive and
+every extracted runtime file, and its red controls prove missing/corrupted fixtures and changed engine
+bytes fail loud. These test fixtures are deliberately outside the npm package allowlist.
+
+Composition validation order is a read barrier, not cosmetic diagnostics. Validate declaration path
+forms in the root before opening any fragment, and in each canonical fragment before opening the next.
+Canonicalization and serialization must stay iterative because byte-bounded valid JSON can still be
+thousands of levels deep. Duplicate-key scanning must collect every occurrence, pre-index locations
+in linear time, and cooperatively tick; an immediate second-key failure loses later origins and an
+origin-by-origin prefix rescan becomes quadratic. T80 pins each failure class.
 
 Make regression tests DETERMINISTIC, not best-effort — a guard that can't fail on the regression it
 names is worse than none. Two patterns proven here: (a) the atomic graph write (temp file + `renameSync`)
@@ -132,32 +181,40 @@ imported generator execution.
 ## Self-dogfood (true-up trues up ITSELF, marker-free)
 
 true-up is part of developing true-up — and it does so **without a single inline marker in its own
-files** (every edge is a sidecar `seed`). The wiring:
+files** (every edge is a sidecar `seed`). Its root `.true-up.json` is the compatibility sentinel and
+literal include list only; `config/true-up/core.json`, `dependencies.json`, and `zones.json` own the
+load-bearing declarations. The lifecycle copies the current source snapshot and proves deleting the
+fragment-only contract facts fails the real graph gate. The wiring:
 
 - **Source of truth → steward.** The command surface and in-tool agent guidance live in the engine
   (`HELP`, `ROBOT_DOCS`, and `capabilities`). `meta/build-contract.mjs` generates `meta/contract.json`
-  (a committed steward, one fact per command plus explicit `agent_guidance` facts) from
+  (a committed steward, one fact per command plus explicit `agent_guidance` and named
+  `config_composition` facts) from
   `true-up capabilities`. `meta/build-contract.mjs --check` is the **engine→contract drift gate**
   (fails if the steward is stale vs the engine) — run in `npm test` posttest and local CI. The generated
   steward is also modeled as a marker-free **mechanical** seed edge (`kind: generated-from`, `via:
   meta/build-contract.mjs`) from `bin/true-up`, `lib/engine.mjs`, and the generator itself.
-- **Docs → contract (marker-free).** `.true-up.json` `seed` declares the dependency: `README.md`
+- **Docs → contract (marker-free).** The composed dependency fragment declares the dependency: `README.md`
   derives-facts-from each `meta/contract.json#commands.<name>` it documents, plus
   `meta/contract.json#agent_guidance.declared-seed-edge`; `docs/CONFIG.md` also derives from that
-  agent-guidance fact. `AGENTS.md` and `SKILL.md` derive-facts-from the whole `meta/contract.json`
+  agent-guidance fact. README, SKILL, CONFIG, and AGENTS also derive from each named
+  `config_composition` fact, so a schema/merge/path/worktree change has a precise blast radius.
+  `AGENTS.md` and `SKILL.md` additionally derive-facts-from the whole `meta/contract.json`
   (file-granular). No `<!-- fact: -->` anchors anywhere — the build proves it (`byDirectionBasis` is
   all `declared` except symlink aliases).
 - **Audience is data, not folklore.** `.true-up.json` `zones` assigns document intent and audience:
   `README.md` is for external users + agents, `SKILL.md` is for external agents, `AGENTS.md` is for
   maintainer agents, `docs/CONFIG.md` is the adopter/config reference, `PUBLISHING.md` is for
   credentialed release agents, `workflows/` is for external agents using the agentic layer,
-  `scripts/ci.sh` is the local release trust anchor, `tests/engine.sh` is the regression harness,
-  `meta/contract.json` is for agents + CI, and `agent_ergonomics_audit/` is the maintainer audit trail.
+  `scripts/ci.sh` is the local release trust anchor, `tests/engine.sh` orchestrates the regression
+  harness, the dedicated transport/envelope/composition suites pin their named bug classes,
+  `config/true-up/` is maintainer-owned self-config, `meta/contract.json` is for agents + CI, and
+  `agent_ergonomics_audit/` is the maintainer audit trail.
   The graph stamps those values onto file nodes so `true-up graph --json`
   is the query surface for "who is this artifact for?"
 - **Documents depend on documents.** The seed graph also models semantic prose dependencies that no
   parser can infer: `README.md` derives its config summary from `docs/CONFIG.md`; `SKILL.md` derives
-  from `README.md`, `docs/CONFIG.md`, `.true-up.json`, and the workflow overview; `AGENTS.md` derives
+  from `README.md`, `docs/CONFIG.md`, the composed root/fragments, and the workflow overview; `AGENTS.md` derives
   from the user/agent docs plus the engine, harness, release, workflow, and local-CI surfaces it summarizes;
   `PUBLISHING.md` derives from package metadata, lockfile, changelog, installer, and local CI.
   This is intentional "more than AST" truth — if a source document changes,
@@ -165,13 +222,20 @@ files** (every edge is a sidecar `seed`). The wiring:
 - **Probe the case study directly.** `true-up --impact meta/contract.json#agent_guidance.declared-seed-edge`
   should name the docs that teach marker-free `seed` edges, and `true-up graph --json` should show the
   full audience/dependency map with zero `anchored`/`generator` self-edges. Tests T74/T75 pin this.
+  `true-up --impact meta/contract.json#config_composition.merge` should name README, SKILL, CONFIG,
+  and AGENTS, while graph/status expose all four config sources and fragment provenance.
 - **The tool gates itself locally.** `npm test` posttest runs `true-up gate` (`--check` + `--policy` +
   `--externalities`) on true-up's own repo, and `npm run ci` is the release trust anchor: fixture suite,
-  self-gate, contract check, pack, clean-sandbox install, tarball run, negative gate, hygiene, and version
-  coherence. There is intentionally no hosted GitHub Actions mirror for this repo.
+  self-gate, contract check, pack, clean-sandbox install, installed composition positives/negatives,
+  runnable packaged example, lean optional-dependency failure, rich installed-symbol success, tarball
+  run, negative gate, hygiene,
+  and version coherence. There is intentionally no hosted GitHub Actions mirror for this repo.
 - **When you add/rename/change a command:** regenerate the steward (`npm run contract`), and if it's a
   new command, add its `seed` line(s) so its doc-drift is tracked. The local `npm run ci` gate will remind
   you if you forget to regenerate.
+- **When you change composition:** update exported constants/semantics in `lib/config.mjs`, the
+  capabilities contract, its dedicated test, and the affected composed-config fact edges; regenerate
+  the steward and run both source and clean-installed package conformance.
 
 ### Durable lessons from the telltail dogfooding round
 
@@ -206,6 +270,64 @@ Provenance: these came from a real user dogfooding report (telltail v0.1.0) run 
 - **Read the child's exit code, not its stdout.** `run`'s verify step sniffed `--policy` stdout with a
   regex to decide clean/dirty; now it reads the child process's EXIT CODE. Structured status belongs in
   the exit code, not in a stdout string a refactor can silently reword. (MED.)
+- **Exit 0 must mean stdout is complete.** Calling `process.exit(...)` after asynchronous
+  `process.stdout.write(...)` or `console.log(...)` can truncate a piped payload while still reporting
+  success. The observed 164,597-byte JSON proof repeatedly stopped at 146,176 bytes; independent audit
+  also saw only 268 of 4,096 human graph nodes. Keep direct writes and the process-local `console.log`
+  adapter on synchronous `writeStdout`. Preserve `tests/large-json-transport.mjs`: it checks every
+  expected node/dependent in source and installed-package structured and human graph/proof/status/dry-run
+  outputs, plus exact-boundary and async-writer mutants. It also resolves an installed `.bin/true-up`
+  symlink before inspecting the package engine and proves an early downstream pipe close exits nonzero
+  with EPIPE. Do not weaken it to shell redirection, because regular-file stdout masked the bug. (HIGH.)
+- **VCS output is required input, not a best-effort hint.** Node's historical 1 MiB child-process
+  buffer could overflow on `git ls-files` or `git show`; the old catch-to-empty adapters then produced
+  false-clean graphs, leak scans, or impact reports. The required adapter is bounded at 64 MiB,
+  distinguishes an absent object/no-match from any operational failure, and fails loud with exit 2 plus
+  a `vcs-read-failed` JSON envelope. `tests/large-vcs-output.mjs` now covers >1 MiB tracked-list and
+  historical-fact reads, injected >64 MiB capture failure, operational object-read failure versus
+  genuine absence, Git <=2.40-compatible object probing, index-only staged deletion, an unborn Git
+  repository's empty implicit baseline, and non-colocated jj `@-` default plus required-read failure.
+  Every Git path inventory is now a byte-buffered, terminal-NUL-validated `-z` stream; invalid UTF-8
+  exits 2 instead of decoding to a nonexistent replacement path. Fatal UTF-8 decoding must also set
+  `ignoreBOM:true`: despite the counterintuitive name, that preserves a leading U+FEFF as filename
+  content instead of silently stripping it and scanning a different path. jj file/diff inventories use JSONL
+  templates, and anchor discovery scans the lossless inventory locally because `jj file search` has no
+  template mode. The regression pins LF, tab, Unicode, invalid UTF-8, malformed framing, exact seed
+  resolution, leading-BOM preservation, leak detection, changed-path impact, and matching non-colocated jj behavior.
+  Git diffs use `--no-renames`, because rename collapsing emits only the destination and can erase
+  dependents wired to the deleted source. Ref probes treat only the tool's documented absence status
+  as absence; operational jj `log` failure stays `vcs-read-failed`. Root discovery must also fail loud
+  when a visible Git worktree's probe fails: falling through to colocated jj changes index-only
+  committed semantics and can bless a staged deletion. This includes an explicit `--repo` symlink to
+  the worktree: directory probes follow that symlink just as `git -C` does, so it cannot bypass the
+  Git-marker guard and switch to jj semantics. Security and policy scans treat a tracked
+  symlink's link text as its repository content: they use `lstat` + `readlink`, never follow the live
+  target. Following the target both hid machine-local link text from the gates and could read mutable
+  bytes outside the target repo. The VCS regression pins graph classification plus `--externalities`
+  and `--policy` violations for a broken `/home/...` link.
+  Release/package fixtures must not inherit an ambient temp root as a VCS ancestor either. This
+  machine's `$TMPDIR` contained an unrelated empty `.git`; the source VCS harness passed from its owned
+  scratch tree, while the clean-installed harness under bare `mktemp -d` failed every non-colocated jj
+  build. `scripts/ci.sh` now allocates `~/scratch/true-up-ci.*`, exports that owned root as
+  `GIT_CEILING_DIRECTORIES`, and the self-harness pins both lines. Keep the dynamic ceiling test and the
+  static CI-wiring assertion together: one proves engine behavior, the other proves release CI uses it.
+  Wave 0B source, clean-package, full-suite, and independent VCS/package audits all pass on the
+  remediated snapshot. (HIGH, resolved in Wave 0B.)
+- **A uniform JSON contract needs an inventory gate, not spot checks.** Wave 0B first found documented
+  JSON-capable success paths that emitted `_v` without boolean `ok`, plus a symbols dependency failure
+  with stderr only. The current 59-case inventory derives canonical coverage from live capabilities,
+  covers documented aliases and hooks modes, and adds diagnostic parity plus missing-value,
+  trailing-global, and stray-positional usage guards. Every `ok:false` case must carry its own nonempty
+  stable `kind`; the inventory deliberately does not substitute `error` for a missing kind and pins
+  the exact kind per case. It also checks every expected exit against the owning capability row and
+  every expected kind against the exhaustive `error_codes` list. Three broken-seed cases ensure
+  in-memory impact, scope, and dry-run commands call the shared graph-build-error gate rather than
+  returning 0 dependents, vacuous PASS, or GREEN. It must fail on command, exit, error-code, or usage-
+  guard coverage drift. The source and clean-installed-package inventories, full lifecycle, and
+  independent package audit all pass.
+  The earlier frozen red baseline remains useful historical evidence: 38/50 cases passed, with 12
+  failures across bad-ref/outside-VCS/invalid-config/build-error/unknown-target/export-usage/
+  unknown-command-or-flag/hooks-refusal diagnostic paths. (HIGH, resolved in Wave 0B.)
 - **A bad ref is an error, not an empty result.** `--impact --since <bad ref>` swallowed the failure and
   reported "0 dependents" (exit 0), which reads as "nothing is affected" — the most dangerous possible
   false negative. A ref that doesn't resolve to a commit now exits 2. (MED.)

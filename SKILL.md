@@ -70,7 +70,7 @@ true-up hooks --install          # wire a per-repo pre-commit + pre-push gate (-
 true-up export --audience public # emit a one-way inter-repo import snapshot from explicit exports
 true-up --verify-scope --since HEAD~1  # anti-code-golf gate (jj-only: --since @-)
 true-up --check                  # stale-graph gate on the ON-DISK graph (exit 1 if it drifted from a fresh build)
-true-up --check --committed      # drift gate on the VCS-stored graph (Git: staged/HEAD; jj-only: @)
+true-up --check --committed      # drift gate on the VCS-stored graph (Git: selected-worktree index only; jj-only: @)
 true-up --policy                 # zone/visibility lint, including lower→higher edges (exit 1 on violations; --report = exit 0)
 true-up --externalities          # machine-local-path leak scan (exit 1 on leaks; --report = exit 0)
 true-up init                     # scaffold a starter .true-up.json (idempotent: no-op + exit 0 if one exists)
@@ -85,7 +85,8 @@ true-up --repo <path>            # target another repo
 **Structured output.** Every read-side command takes `--json` → a single JSON object on
 **stdout** (data only; diagnostics go to stderr), so an agent/workflow parses the result instead of
 scraping human text. `true-up capabilities` returns the whole contract (commands, flags, the exit-code
-dictionary) so you never have to remember it. A mistyped command gets a `did you mean: …` suggestion.
+dictionary, and stable `error_codes`) so you never have to remember it. Every `ok:false` envelope
+carries a `kind` from that list; a mistyped command also gets a `did you mean: …` diagnostic.
 For `status --json`, `ok` means the probe ran; `gateGreen` means cache/policy/leak gates are clean;
 `green` means no truing-up work remains. Automation should not treat `ok: true` as "done." Agents in
 parallel worktrees should also check `.workspace.root` and `.workspace.warnings` before running any
@@ -123,9 +124,9 @@ cross-file dependency/leak gate. If a formatter or lint fixer rewrites files, re
 - `--check` — exit 0 if the on-disk graph matches a fresh build; exit 1 if it drifted OR is absent
   (`--check` rebuilds in-process, so an unbuilt graph reads as stale → exit 1, never exit 2). The
   "graph not built yet → exit 2" case applies to `--impact`/`run`, which *read* the prebuilt graph.
-- `--check --committed` — exit 0 if the **committed-or-staged** graph blob equals a fresh rebuild;
-  exit 1 if it's stale, and exit 1 if the graph is untracked (no false assurance). This is the real
-  drift gate for repos that commit the graph; prefers the staged blob (pre-commit), else `HEAD` (CI).
+- `--check --committed` — exit 0 if the graph blob in the selected Git worktree's **index** (or jj
+  `@`) equals a fresh rebuild; exit 1 if it's stale or absent (no false assurance). Clean Git CI works
+  because its index mirrors `HEAD`; there is no `HEAD` fallback, so a staged deletion remains absent.
 - `--policy` / `--externalities` — exit 1 on any violation/leak; exit 0 when clean. Add `--report`
   to force exit 0 (print the findings without failing the build — report-only).
 - `--impact --since <ref>` — exit 0; but a `<ref>` that does not resolve to a commit exits 2 (a bad
@@ -147,8 +148,45 @@ cross-file dependency/leak gate. If a formatter or lint fixer rewrites files, re
 optional. If you **don't** commit it, `--check` (working-tree freshness) is your gate. If you **do**
 commit or track it (so the VCS is the database and reviewers can diff the graph), `--check --committed`
 is the drift gate that catches "source changed without the regenerated graph" — and it fails closed
-when the graph is absent from the VCS view. In Git it reads the staged blob first, then `HEAD`; in
-jj-only repos it reads `@`. Pick one model per repo and gate accordingly.
+when the graph is absent from the VCS view. In Git it reads only the selected worktree's index (which
+mirrors `HEAD` in a clean CI checkout) and never rescues a staged deletion from `HEAD`; in jj-only
+repos it reads `@`. Pick one model per repo and gate accordingly.
+
+## Split a large config safely
+
+Use native composition when `.true-up.json` has become hard to review or different domains need clear
+ownership. It is a structural refactor, not a performance optimization. Start from the target reported
+by `true-up status --json`; never copy a root config or graph from a sibling worktree.
+
+1. Preserve the current flat `.true-up.json` in version control and capture
+   `true-up build --no-write --json` as the semantic baseline.
+2. Replace the root with the complete activation sentinel:
+   `{"compositionVersion":1,"include":["config/true-up/core.json"],"zones":null}`. Keep `$schema`,
+   `out`, `symbols`, `strictSpans`, `deadlineMs`, and `repoId` in the root. The root may also own
+   `facts`, `seed`, `imports`, or `exports`; only fragments may provide zone arrays.
+3. Put `facts`, `zones`, `seed`, `imports`, and `exports` in literal one-level fragments. All declared
+   paths remain relative to the selected worktree root, not to the fragment's directory.
+4. Give each normalized fact-source path, zone path, seed `(from,to)` pair, import alias, and export id
+   exactly one source owner. Even identical declarations in two sources are a conflict. Preserve array
+   order and intentional duplicates within their existing source.
+5. Run `true-up build --no-write --json`, `true-up graph --json`, and `true-up status --json`. Verify
+   `.workspace.root`, the `composition` totals, every `configSources[].path/state`, any
+   `configSourceWarnings`, and each composed seed edge's `declaredIn.source`/`pointer`.
+6. After the no-write review, run `true-up build`, the repo's own tests, and `true-up gate`. If the
+   graph is committed, stage the manifest, every fragment, and the rebuilt graph together; then use
+   `true-up --check --committed`.
+
+Composition fails closed. A partial sentinel, unsupported version, missing/ignored/symlinked fragment,
+nested include, unknown key, duplicate JSON key, path escape, size/count breach, or cross-source owner
+conflict exits 2 as `invalid-config`; config-consuming commands do not continue with a partial graph.
+`--help`, `--version`, `robot-docs`, and `capabilities` remain config-independent and do not traverse fragments.
+The `zones:null` sentinel also makes older loaders reject the config instead of silently treating the
+new manifest as a flat config.
+
+For Git, status and committed checks are scoped to the selected linked worktree; committed verification
+uses that worktree's index only and rejects unstaged, untracked, `skip-worktree`, or `assume-unchanged`
+config sources. For jj-only repos, the committed view is `@`. To roll back, restore the prior flat
+config, remove or leave the unreferenced fragments, rebuild, and rerun the same gates.
 
 ## Suppressing legitimate path examples
 

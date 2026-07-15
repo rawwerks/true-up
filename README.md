@@ -144,7 +144,7 @@ uniform `ok` boolean.
 | `true-up status` | read-only orientation in one call: target workspace, built? stale? what changed + what to run next | 0 as a probe; 2 for usage errors such as a bad `--since` ref |
 | `true-up graph [--json]` | read-only graph dump: nodes, audiences/zones, edges, propagation, generator `via` | 0 (1 on graph errors; 2 on usage/config errors) |
 | `true-up build` (or bare `true-up`) | build the dependency graph (`out`, default `.true-up/depgraph.json`) | 0 (1 on an unresolved anchor; 2 on ill-typed config) |
-| `true-up --check [--committed]` | is the graph stale? `--committed` checks the VCS-stored graph (Git: staged/HEAD; jj-only: `@`) | 1 if stale |
+| `true-up --check [--committed]` | is the graph stale? `--committed` checks the VCS-stored graph (Git: selected-worktree index only; jj-only: `@`) | 1 if stale |
 | `true-up --impact <path\|path#fact>… [--since <ref>] [--proof]` | what becomes stale if that path/fact changes; `--proof` audits changed facts whose dependents were already edited in-range | 0 (2 on unknown target / bad ref) |
 | `true-up run [--since <ref>] [--strict]` | the loop: detect → regenerate mechanical deps → list advisory prose → verify | 1 if not green (2 under `--strict` when advisory review is pending) |
 | `true-up gate [--committed]` | one CI/pre-commit stage: `--check` + `--policy` + `--externalities` | **1 if any sub-check fails** |
@@ -190,6 +190,45 @@ the exact command to run instead.
   "zones": [ { "path": "", "visibility": "public", "rules": ["no-machine-local-paths"] } ]
 }
 ```
+
+### Split a large config by domain
+
+When one config becomes difficult to review or assign, keep a small root manifest and move declarations
+into domain-owned JSON fragments. This is a structural and ownership improvement; it does not by itself
+make repository scanning faster.
+
+```json
+{
+  "compositionVersion": 1,
+  "include": [
+    "config/true-up/core.json",
+    "config/true-up/docs.json"
+  ],
+  "zones": null,
+  "out": ".true-up/depgraph.json"
+}
+```
+
+The three activation fields are required together. Includes are literal, one-level, repo-relative
+paths; true-up validates and merges them in deterministic path order. Each fact source, zone path,
+seed endpoint pair, import alias, or export id must be owned by exactly one source. A duplicate owner,
+missing fragment, nested include, symlink, or path escape fails closed with exit 2 instead of falling
+back to a partial config.
+
+See the runnable [multi-file example](examples/config-composition/README.md) and the full
+[composition reference](docs/CONFIG.md#native-config-composition-version-1). To adopt it safely:
+
+1. Capture the current flat config and a no-write graph result in version control or outside the repo.
+2. Move declarations without changing them; keep root-only settings in the manifest and give each
+   logical declaration one owner.
+3. Run `true-up build --no-write --json`, `true-up graph --json`, and `true-up status --json`. Inspect
+   `composition`, `configSources`, `configSourceWarnings`, and edge `declaredIn` provenance.
+4. After the no-write inspection matches, run `true-up build`, the repo's tests, and `true-up gate`.
+   If the repo commits its graph, stage the root, every fragment, and the rebuilt graph together.
+
+Rollback is manual and direct: restore the saved flat config, remove or leave the now-unreferenced
+fragments, and rebuild the graph. Repeating either migration or rollback produces the same config
+semantics when the declarations are unchanged.
 
 ## Make code a source of truth
 
@@ -270,8 +309,9 @@ true-up is built to be driven by coding agents:
 - **`true-up robot-docs`** — a paste-ready handbook (task → command), in-tool, no external doc lookup.
 - **`true-up --impact --since HEAD --proof --json`** — audit a completed pass: changed facts, their dependents, and whether each dependent was changed in the same range or satisfied by a live symlink alias.
 - **`true-up capabilities`** — the full machine contract (commands, flags, exit codes, `quickstart`).
-- Every read-side command: `--json` with a uniform `ok` + `_v`; errors emit `{ok:false, …}` and a
-  `did you mean` suggestion (e.g. `true-up update` → "did you mean: run").
+- Every read-side command: `--json` with a uniform `ok` + `_v`; every `{ok:false, …}` envelope carries
+  a stable `kind` from `capabilities.error_codes`, while human diagnostics (including `did you mean`)
+  stay on stderr.
 
 ## How true-up uses itself
 

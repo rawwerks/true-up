@@ -1,0 +1,338 @@
+{
+  "_comment": "Audience, intent, visibility, and policy ownership for true-up artifacts.",
+  "zones": [
+    {
+      "path": "README.md",
+      "visibility": "public",
+      "audience": "external-users-and-agents",
+      "intent": "product-overview-and-quickstart",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "SKILL.md",
+      "visibility": "public",
+      "audience": "external-agents",
+      "intent": "loadable-agent-skill",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "AGENTS.md",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "maintainer-handbook",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "CLAUDE.md",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "maintainer-handbook-alias",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "docs/CONFIG.md",
+      "visibility": "public",
+      "audience": "adopters-and-agents",
+      "intent": "configuration-reference",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "PUBLISHING.md",
+      "visibility": "public",
+      "audience": "credentialed-release-agents",
+      "intent": "npm-publish-handoff",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "CHANGELOG.md",
+      "visibility": "public",
+      "audience": "external-users-and-release-agents",
+      "intent": "release-history",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "meta/contract.json",
+      "visibility": "public",
+      "audience": "agents-and-ci",
+      "intent": "generated-contract-steward",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "meta/build-contract.mjs",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "contract-generator",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": ".true-up.json",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "self-dogfood-dependency-model",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "config/true-up/",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "composed-self-config-fragments",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "package.json",
+      "visibility": "public",
+      "audience": "release-agents-and-package-managers",
+      "intent": "npm-manifest",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "bun.lock",
+      "visibility": "public",
+      "audience": "release-agents-and-package-managers",
+      "intent": "dependency-lockfile",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": ".gitignore",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "repository-ignore-rules",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "scripts/ci.sh",
+      "visibility": "public",
+      "audience": "release-agents-and-maintainers",
+      "intent": "local-ci-trust-anchor",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "tests/engine.sh",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "regression-harness",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "tests/large-json-transport.mjs",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "large-stdout-transport-regression",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "tests/large-vcs-output.mjs",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "large-vcs-read-regression",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "tests/json-envelope-contract.mjs",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "json-envelope-contract-regression",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "tests/config-composition.mjs",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "config-composition-loader-contract",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "tests/config-composition-cli.mjs",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "config-composition-cli-contract",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "tests/fixtures/pre-composition/",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "immutable-compatibility-test-fixtures",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "tests/config-composition-worktrees.mjs",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "config-composition-vcs-contract",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "tests/config-composition-adversarial.mjs",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "config-composition-adversarial-contract",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "tests/config-composition-fuzz.mjs",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "config-composition-fuzz-contract",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "tests/config-composition-mutations.mjs",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "config-composition-mutation-contract",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "tests/config-composition-capabilities.mjs",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "config-composition-machine-contract",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "tests/config-composition-package.mjs",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "config-composition-installed-package-contract",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "lib/config.mjs",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "deterministic-config-loader",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "lib/",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "engine-source",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "bin/true-up",
+      "visibility": "public",
+      "audience": "external-users-and-agents",
+      "intent": "cli-entrypoint",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "install.sh",
+      "visibility": "public",
+      "audience": "external-users-and-agents",
+      "intent": "installer",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "examples/",
+      "visibility": "public",
+      "audience": "adopters-and-agents",
+      "intent": "configuration-examples",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "workflows/",
+      "visibility": "public",
+      "audience": "external-agents",
+      "intent": "agentic-workflow-templates",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "agent_ergonomics_audit/",
+      "visibility": "public",
+      "audience": "maintainer-agents",
+      "intent": "audit-trail",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "LICENSE",
+      "visibility": "public",
+      "audience": "external-users-and-package-managers",
+      "intent": "license",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    },
+    {
+      "path": "",
+      "visibility": "public",
+      "audience": "world",
+      "intent": "public-default",
+      "rules": [
+        "no-machine-local-paths"
+      ]
+    }
+  ]
+}

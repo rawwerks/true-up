@@ -8,6 +8,31 @@ surface in [`meta/contract.json`](meta/contract.json) (`true-up capabilities`, `
 Scope: from the initial commit through the first tagged release. Links point at the canonical
 commit pages on GitHub (`rawwerks/true-up`). No GitHub *Releases* existed before `v0.1.0`.
 
+## [Unreleased]
+
+### Development
+
+- Added native, deterministic one-level config composition. A small root manifest can include
+  domain-owned JSON fragments; every config-consuming command uses the same zero-dependency loader,
+  while flat configurations retain their prior serialized graph shape. The public docs now cover
+  activation, ownership conflicts, worktree-aware migration/rollback, and a packaged runnable example.
+  This is an ownership and reviewability feature; no runtime performance improvement is claimed.
+  The measured composition gates cover 48 pure-loader cases, 9 real-CLI/version-skew/scale cases,
+  16 Git/jj/worktree cases, a 14-case compound adversarial corpus, a five-seed 400-case metamorphic
+  campaign (2,800 loader executions), and 17/17 killed named production mutations with reverted-green
+  controls. A machine-readable capability/discoverability gate pins all 30 composition detail codes,
+  and an 8-case conformance suite runs at both the source and clean-installed-package boundaries.
+- Made repository probing honor `GIT_CEILING_DIRECTORIES`, and isolated the fixture harness beneath a
+  single cleanup root, so an unrelated Git marker above `TMPDIR` cannot break repo-independent or
+  jj-only tests.
+- Made the old-loader compatibility regression reproducible from a history-free source snapshot. Its
+  two audited pre-composition runtimes are now immutable offline fixtures with compressed-archive and
+  per-file SHA-256 checks plus missing/corrupt/changed-engine red controls; source tests no longer
+  depend on historical objects being present in the current clone.
+- Fixed the six version-timeline links whose hand-authored anchors omitted one of the three hyphens in
+  GitHub's generated release-heading slugs, and added source plus clean-package anchor gates with a
+  double-hyphen mutant.
+
 ## [0.2.1] - 2026-07-07
 
 Performance/robustness release: kills the quadratic scan behind a multi-day CPU runaway and adds a
@@ -21,6 +46,51 @@ watchdog so no future scan can spin unbounded.
   file (a multi-hundred-k-line `package-lock.json`/`bun.lock` is the canonical case) a bare build
   burned days to weeks of CPU at ~100%. The file-scoped result is now memoized once per file: a
   40k-line lockfile build went from >60 s to ~0.2 s, and scaling is linear.
+- **Large piped stdout could be truncated despite exit 0.** Structured commands used
+  `process.stdout.write(...)`, human commands used `console.log(...)`, and both could terminate
+  immediately with `process.exit(...)`. When stdout was a pipe, Node could exit before flushing the
+  tail: a 164,597-byte JSON proof repeatedly arrived as the same invalid 146,176-byte prefix, and an
+  independent 4,096-node human graph emitted only 268 nodes while still reporting success. Structured
+  and human stdout now share one synchronous writer. The source-and-installed-package regression
+  asserts every node/dependent through 4,096-node graph, impact-proof, status, and dry-run outputs up to
+  2.62 MiB, proves exact-boundary plus async-writer mutants fail, resolves clean-install `.bin`
+  symlinks to the packaged engine, and requires an early downstream pipe close to exit nonzero with
+  EPIPE.
+
+### Fixed in Wave 0B
+
+- **Large VCS reads and object-state failures now fail closed.** The VCS adapters inherited
+  Node's historical 1 MiB child-process buffer and caught failures as empty text/lists. A sufficiently
+  large tracked-file list or historical steward could therefore erase graph nodes, leak findings, or
+  changed facts without failing the command. The source remediation now imposes an explicit 64 MiB
+  bound and emits `vcs-read-failed`; its focused regression covers >1 MiB tracked-list/history reads,
+  injected >64 MiB failure, operational object-read failure versus absence, Git <=2.40-compatible
+  probing, index-only staged deletion, an unborn Git repository's empty implicit baseline, and
+  non-colocated jj `@-` defaults plus required-read failure. It also proves opaque path transport:
+  Git uses byte-buffered, NUL-delimited inventories; LF/tab/Unicode—including a leading U+FEFF—round-
+  trip exactly; invalid UTF-8 and malformed framing fail loud; jj uses JSONL path templates and
+  preserves matching special-path graph, leak, span-anchor, and impact behavior. The decoder uses
+  `ignoreBOM:true` so U+FEFF remains filename content rather than being stripped. Git changed-path
+  reads disable rename collapsing so a staged source rename still reports dependents of the deleted
+  source. Operational jj ref failures and Git root-probe failures in colocated worktrees fail loud
+  instead of being treated as absence or silently switching to jj semantics, including when `--repo`
+  names the worktree through a directory symlink. Policy and externality
+  scans now inspect a tracked symlink's link text with `readlink` instead of following its live target;
+  the regression proves a machine-local broken link is both a symlink graph node and a gate violation.
+  This prevents false-clean output and avoids live reads outside the target repo. Source and
+  clean-installed-package helpers, the 239-test source lifecycle, the eight-stage local CI, and
+  independent VCS/package audits pass on the remediated snapshot.
+- **Uniform JSON envelopes are verified by a live inventory.** The documented contract requires boolean `ok` plus
+  `_v` on every JSON-capable success and error path, with human diagnostics preserved on stderr. The
+  current inventory derives canonical coverage from live capabilities and contains 59 cases spanning
+  commands, aliases, hooks modes, missing optional symbol dependencies, usage/config/fail-loud paths,
+  missing-value, trailing-global, and stray-positional usage guards, and a required nonempty stable
+  `kind` on every `ok:false` envelope. Exact kinds must belong to the exhaustive capability
+  `error_codes`, and every case exit must belong to its command's advertised exit set. Broken-seed
+  cases pin fail-loud in-memory impact, scope, and dry-run paths. The earlier frozen run remains the red
+  baseline (38/50 passed; 12 failure diagnostics were absent); the stable-kind tightening separately
+  produced a 42/56 red baseline. The current 59/59 source and clean-installed-package inventories,
+  full source/CI lifecycles, and independent package audit all pass.
 
 ### Added
 
@@ -174,12 +244,12 @@ A compatibility patch for real-world committed-graph and Jujutsu workspaces. No 
 
 | Version | Date | Summary |
 |---|---|---|
-| [0.2.0](#020--2026-06-29) | 2026-06-29 | Inter-repo one-way snapshots, explicit import/export handshake, taint/declassification gates, and lattice-based local privacy policy. |
-| [0.1.4](#014--2026-06-23) | 2026-06-23 | Multi-agent/worktree status identity, repo-qualified next commands, impact proof mode, and atomic graph writes. |
-| [0.1.3](#013--2026-06-22) | 2026-06-22 | Agent guidance and npm publishing handoff are modeled in true-up's own dependency graph. |
-| [0.1.2](#012--2026-06-22) | 2026-06-22 | jj-only workspace support plus the committed-graph output fix for repos that intentionally track `.true-up/depgraph.json`. |
-| [0.1.1](#011--2026-06-22) | 2026-06-22 | Docs rewritten for users (README no longer leaked internal/maintainer framing); a doc-fact-check found and fixed real drift (a README config example that failed to build, an `init` exit-code claim, an installer `--help` source leak); six deterministic doc/marker-drift gates added so it can't recur. |
-| [0.1.0](#010--2026-06-22) | 2026-06-22 | First tagged release: the deterministic, git-native truing-up engine — language-agnostic, read-only-by-design, marker-free, self-dogfooding. |
+| [0.2.0](#020---2026-06-29) | 2026-06-29 | Inter-repo one-way snapshots, explicit import/export handshake, taint/declassification gates, and lattice-based local privacy policy. |
+| [0.1.4](#014---2026-06-23) | 2026-06-23 | Multi-agent/worktree status identity, repo-qualified next commands, impact proof mode, and atomic graph writes. |
+| [0.1.3](#013---2026-06-22) | 2026-06-22 | Agent guidance and npm publishing handoff are modeled in true-up's own dependency graph. |
+| [0.1.2](#012---2026-06-22) | 2026-06-22 | jj-only workspace support plus the committed-graph output fix for repos that intentionally track `.true-up/depgraph.json`. |
+| [0.1.1](#011---2026-06-22) | 2026-06-22 | Docs rewritten for users (README no longer leaked internal/maintainer framing); a doc-fact-check found and fixed real drift (a README config example that failed to build, an `init` exit-code claim, an installer `--help` source leak); six deterministic doc/marker-drift gates added so it can't recur. |
+| [0.1.0](#010---2026-06-22) | 2026-06-22 | First tagged release: the deterministic, git-native truing-up engine — language-agnostic, read-only-by-design, marker-free, self-dogfooding. |
 
 ## [0.1.1] - 2026-06-22
 
@@ -243,9 +313,10 @@ Every fix ships with a regression test (`tests/engine.sh` T40–T72).
 - **Agent ergonomics.** New `status` read-only **orientation mega-command** (built/stale, what's stale,
   policy/leak status, `nextCommands[]` — one call, always exit 0); new `robot-docs` in-tool agent
   handbook; explicit `build` verb. Intent/synonym inference (`update`→`run`, `docs`→`robot-docs`,
-  `--jsno`→`--json`, cross-prefix typos). Every `--json` envelope carries a uniform `ok` + `_v`; error
-  paths emit `{ok:false,…}` on stdout. `capabilities` gained `quickstart`, `entrypoints`, `cmd_flags`,
-  and `error_codes`. Fresh `git clone && npm test` is green (Tier-2 symbol tests skip honestly without
+  `--jsno`→`--json`, cross-prefix typos). The intended `--json` contract was a uniform `ok` + `_v`
+  with `{ok:false,…}` on error; Wave 0B later found uncovered command/alias gaps, recorded under the
+  0.2.1 in-progress item above. `capabilities` gained `quickstart`, `entrypoints`, `cmd_flags`, and
+  `error_codes`. Fresh `git clone && npm test` is green (Tier-2 symbol tests skip honestly without
   the optional tree-sitter devDeps); `scripts/ci.sh` self-bootstraps devDeps and surfaces the real error
   on a failed step.
 

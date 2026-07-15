@@ -23,6 +23,12 @@ set -uo pipefail
 # HOME for the jj subsuite ONLY. This keeps the repo GENERAL (no machine paths in-tree) while letting the
 # jj tests actually RUN on a machine whose jj is $HOME-relative, instead of spurious-failing.
 ORIG_HOME="$HOME"
+HARNESS_TMP="$(mktemp -d)"
+export TMPDIR="$HARNESS_TMP"
+# The caller's temp directory can itself live below an unrelated Git checkout. Every fixture belongs
+# to this one run root, and Git discovery must stop before inspecting that root or any ancestor. This
+# keeps "outside a repo" and jj-only cases deterministic while one final trap removes every fixture.
+export GIT_CEILING_DIRECTORIES="$HARNESS_TMP"
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
 export HOME="$(mktemp -d)"
 
@@ -54,8 +60,8 @@ fi
 # depends on (or writes to) the dev's personal jj config, on any machine.
 JJCFG="$(mktemp)"; printf '[user]\nname = "true-up tests"\nemail = "tests@true-up.invalid"\n' > "$JJCFG"; export JJ_CONFIG="$JJCFG"
 
-FIX="$(mktemp -d)"; H=""; C=""; CG=""; P=""; E=""; V=""; M=""; IR_SRC=""; IR_DST=""; IR_BAD=""; IR_LIVE=""; IR_UNTRACKED=""; IR_SYM=""; IR_FUZZ=""; S=""; Y=""; Z=""; G=""; K=""; SD=""; MG=""; PD=""; SY=""; WTBASE=""; WTLINK=""; WTCWD=""; CYC=""; JJO=""; JJC=""; RUNAWAY=""
-trap 'rm -rf "$FIX" "$H" "$C" "$CG" "$P" "$E" "$V" "$M" "$IR_SRC" "$IR_DST" "$IR_BAD" "$IR_LIVE" "$IR_UNTRACKED" "$IR_SYM" "$IR_FUZZ" "$S" "$Y" "$Z" "$G" "$K" "$SD" "$MG" "$PD" "$SY" "$WTBASE" "$WTLINK" "$WTCWD" "$CYC" "$JJO" "$JJC" "$JJCFG" "$RUNAWAY"' EXIT
+FIX="$(mktemp -d)"; H=""; C=""; CG=""; P=""; E=""; V=""; M=""; IR_SRC=""; IR_DST=""; IR_BAD=""; IR_LIVE=""; IR_UNTRACKED=""; IR_SYM=""; IR_FUZZ=""; S=""; Y=""; Z=""; G=""; K=""; SD=""; MG=""; PD=""; SY=""; WTBASE=""; WTLINK=""; WTCWD=""; CYC=""; JJO=""; JJC=""; RUNAWAY=""; JSON_TRANSPORT=""
+trap 'rm -rf "$HARNESS_TMP" "$FIX" "$H" "$C" "$CG" "$P" "$E" "$V" "$M" "$IR_SRC" "$IR_DST" "$IR_BAD" "$IR_LIVE" "$IR_UNTRACKED" "$IR_SYM" "$IR_FUZZ" "$S" "$Y" "$Z" "$G" "$K" "$SD" "$MG" "$PD" "$SY" "$WTBASE" "$WTLINK" "$WTCWD" "$CYC" "$JJO" "$JJC" "$JJCFG" "$RUNAWAY" "$JSON_TRANSPORT"' EXIT
 
 # --- synthesize a target repo: steward data + a generated view + an anchored doc + a symlink ---
 git -C "$FIX" init -q
@@ -87,7 +93,8 @@ $TU --repo "$FIX" --impact 'data.json#items.a' 2>/dev/null | grep -q 'doc.md' &&
 rm -rf "$FIX/.true-up"
 js="$($TU --repo "$FIX" graph --json 2>/dev/null)"; rc=$?
 { [ "$rc" -eq 0 ] && [ ! -e "$FIX/.true-up" ] && printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===true&&d.wrote===false&&d.graph&&d.graph.nodes&&Array.isArray(d.graph.edges)&&d.graph.edges.some(e=>e.from==="file:doc.md")?0:1)'; } && ok "graph: read-only full graph dump (--json) writes nothing" || no "graph --json must dump graph and write nothing (rc=$rc)"
-$TU --repo "$FIX" graph 2>/dev/null | grep -q 'dependent -> source-of-truth' && ok "graph: human output renders the edge direction" || no "graph human output must explain edge direction"
+graph_human="$($TU --repo "$FIX" graph 2>/dev/null)"; rc=$?
+{ [ "$rc" -eq 0 ] && grep -q 'dependent -> source-of-truth' <<<"$graph_human"; } && ok "graph: human output renders the edge direction" || no "graph human output must explain edge direction"
 $TU --repo "$FIX" >/dev/null 2>&1
 
 # T3/T4 — structural edges from conventions
@@ -118,7 +125,8 @@ rm -f "$FIX/leak.md"
 out="$($TU --repo "$FIX" --externalities 2>/dev/null)"; echo "$out" | grep -q ': 0 (0 high)' && ok "--externalities clean otherwise" || no "--externalities clean otherwise"
 
 # T7 — zone/policy gate clean
-$TU --repo "$FIX" --policy 2>/dev/null | grep -q 'policy violations: 0' && ok "--policy reports 0 violations" || no "--policy reports 0 violations"
+out="$($TU --repo "$FIX" --policy 2>/dev/null)"; rc=$?
+{ [ "$rc" -eq 0 ] && grep -q 'policy violations: 0' <<<"$out"; } && ok "--policy reports 0 violations" || no "--policy reports 0 violations"
 
 # T8 — the deterministic true-up loop reaches GREEN on a clean target
 $TU --repo "$FIX" run --since HEAD 2>/dev/null | grep -q 'GREEN' && ok "run --since reaches GREEN on a clean repo" || no "run reaches GREEN"
@@ -1134,13 +1142,22 @@ $TU --repo "$RR/pkg" --externalities >/dev/null 2>&1; rc=$?; [ "$rc" -eq 1 ] && 
 
 # T41 — a non-git --repo is a CLEAN exit 2, never a false-clean scan of an empty file set. (GAP-F.)
 NG="$(mktemp -d)"; printf 'leak /home/victim/secret/y\n' > "$NG/README.md" # true-up:ignore-line no-machine-local-paths
-out="$($TU --repo "$NG" --externalities 2>&1)"; rc=$?; { [ "$rc" -eq 2 ] && ! echo "$out" | grep -q 'clean'; } && ok "resolveRoot: --repo <non-git dir> exits 2 (no false-clean)" || no "non-git --repo must exit 2 (rc=$rc)"
+js="$($TU --repo "$NG" --externalities --json 2>/dev/null)"; rc=$?
+{ [ "$rc" -eq 2 ] && printf '%s' "$js" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===false&&d.kind==="not-a-vcs-repo"?0:1)'; } && ok "resolveRoot: --repo <non-git dir> exits 2 (no false-clean)" || no "non-git --repo must exit 2 with kind=not-a-vcs-repo (rc=$rc)"
 
 # T42 — a nonexistent --repo exits 2 with ONE clean line, not raw git 'fatal:' noise. (ROOT-6/ROOT-8.)
 out="$($TU --repo /no/such/path/xyz --policy 2>&1)"; rc=$?; { [ "$rc" -eq 2 ] && ! echo "$out" | grep -q 'fatal:'; } && ok "resolveRoot: nonexistent --repo exits 2, no raw git fatal: noise" || no "nonexistent --repo must exit 2 cleanly (rc=$rc)"
 
 # T43 — --version is CLEAN outside any git repo (no eager-ROOT 'fatal:' leak to stderr). (ROOT-8.)
 ND="$(mktemp -d)"; out="$(cd "$ND" && $TU --version 2>&1)"; { echo "$out" | grep -qE '[0-9]+\.[0-9]+' && ! echo "$out" | grep -q 'fatal:'; } && ok "--version outside a git repo prints cleanly (no git fatal: leak)" || no "--version must be clean outside a repo"
+
+# T43b — Git's discovery ceiling is part of repository identity. A marker ABOVE that ceiling is not
+# this directory's repository and must not turn a normal no-repo probe into vcs-read-failed. This pins
+# the machine-restart incident where TMPDIR itself was an unrelated Git repo and broke --version,
+# robot-docs, and every jj-only fallback created beneath it.
+AMB="$(mktemp -d)"; git -C "$AMB" init -q; mkdir -p "$AMB/ceiling/outside"
+out="$(cd "$AMB/ceiling/outside" && GIT_CEILING_DIRECTORIES="$AMB/ceiling" $TU --version 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && echo "$out" | grep -qE '[0-9]+\.[0-9]+'; } && ok "resolveRoot: honors GIT_CEILING_DIRECTORIES above an unrelated .git marker" || no "resolveRoot must not inspect .git markers above Git's discovery ceiling (rc=$rc)"
 
 # T44 — hooks SAFETY: with core.hooksPath pointing OUTSIDE the repo, --install REFUSES (exit 2) and does
 # NOT write there; --force is the explicit opt-in. This is the footgun that clobbered a dev's GLOBAL
@@ -1308,6 +1325,24 @@ out="$(cd "$TCG" && npm_lifecycle_event=ci bash "$HERE/scripts/ci.sh" --tag-cohe
 # config (GIT_CONFIG_GLOBAL=/dev/null), so pass -c like the commits above or the tag silently won't form.
 git -C "$TCG" -c user.email=t@t -c user.name=t tag -a v9.9.9 -m v9.9.9
 ( cd "$TCG" && npm_lifecycle_event=prepublishOnly bash "$HERE/scripts/ci.sh" --tag-coherence-check 9.9.9 >/dev/null 2>&1 ); [ "$?" -eq 0 ] && ok "tag-coherence: HEAD correctly tagged v<ver> passes under prepublishOnly" || no "a correctly tagged HEAD must pass the publish guard"
+printf '%s\n' '# Changelog' '## [Unreleased]' '' 'staged changes' '' '## [9.9.9] - 2099-01-01' > "$TCG/CHANGELOG-version-fixture.md"
+bash "$HERE/scripts/ci.sh" --changelog-version-check "$TCG/CHANGELOG-version-fixture.md" 9.9.9 >/dev/null 2>&1 \
+  && ok "version-coherence: Unreleased staging notes do not replace the latest numeric release" \
+  || no "version parser must skip [Unreleased] and select the first numeric release heading"
+
+# The Version timeline uses local GitHub heading links. Punctuation is stripped before whitespace is
+# hyphenated, so `## [0.2.0] - DATE` requires THREE hyphens between version and date. Exercise the exact
+# release-CI validator on the source document, then prove a historical double-hyphen mutant is rejected.
+bash "$HERE/scripts/ci.sh" --changelog-anchor-check "$HERE/CHANGELOG.md" >/dev/null 2>&1 \
+  && ok "release: every CHANGELOG Version timeline link resolves to a GitHub heading anchor" \
+  || no "release: CHANGELOG Version timeline links must resolve to real headings"
+cp "$HERE/CHANGELOG.md" "$TCG/CHANGELOG-anchor-mutant.md"
+sed -i '0,/#020---2026-06-29/s//#020--2026-06-29/' "$TCG/CHANGELOG-anchor-mutant.md"
+bash "$HERE/scripts/ci.sh" --changelog-anchor-check "$TCG/CHANGELOG-anchor-mutant.md" >"$TCG/changelog-anchor-mutant.stdout" 2>"$TCG/changelog-anchor-mutant.stderr"
+changelog_anchor_mutant_rc=$?
+{ [ "$changelog_anchor_mutant_rc" -ne 0 ] && grep -qF '#020--2026-06-29' "$TCG/changelog-anchor-mutant.stderr"; } \
+  && ok "release: CHANGELOG anchor validator rejects the double-hyphen mutant (red control)" \
+  || no "release: CHANGELOG anchor validator must reject and name a broken double-hyphen target"
 
 # T65a3 — cycles are legal graph data but traversal must dedupe and terminate.
 CYC="$(mktemp -d)"; git -C "$CYC" init -q
@@ -1449,10 +1484,39 @@ done
 # bases). Drop a <!-- fact: --> or true-up:anchor into a true-up source file and this fails — use a seed.
 marker_edges=$($TU --repo "$HERE" --no-write --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const b=d.byDirectionBasis||{};process.stdout.write(String((b.anchored||0)+(b.generator||0)))')
 [ "$marker_edges" = "0" ] && ok "MARKER-FREE: true-up's own repo has 0 inline-marker edges (all declared seed / symlink)" || no "true-up's own repo grew an inline-marker edge (anchored+generator=$marker_edges) — declare it as a .true-up.json seed instead"
+self_composition=$($TU --repo "$HERE" --no-write --json 2>/dev/null | node -e 'const fs=require("fs");const d=JSON.parse(fs.readFileSync(0,"utf8"));const root=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const core=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));const deps=JSON.parse(fs.readFileSync(process.argv[3],"utf8"));const zones=JSON.parse(fs.readFileSync(process.argv[4],"utf8"));const sources=(d.graph?.configSources||[]).map(x=>x.path);const declared=(d.graph?.edges||[]).find(e=>e.from==="file:meta/contract.json"&&e.to==="file:bin/true-up")?.declaredIn?.source;const ok=d.graph?.composition?.compositionVersion===1&&d.graph.composition.fragmentCount===3&&JSON.stringify(sources)===JSON.stringify([".true-up.json","config/true-up/core.json","config/true-up/dependencies.json","config/true-up/zones.json"])&&root.zones===null&&!Object.hasOwn(root,"facts")&&!Object.hasOwn(root,"seed")&&root.compositionVersion===1&&Array.isArray(root.include)&&Object.keys(core.facts||{}).length>0&&(deps.seed||[]).length>0&&(zones.zones||[]).length>0&&declared==="config/true-up/dependencies.json";process.stdout.write(ok?"yes":"no")' "$HERE/.true-up.json" "$HERE/config/true-up/core.json" "$HERE/config/true-up/dependencies.json" "$HERE/config/true-up/zones.json")
+[ "$self_composition" = "yes" ] && ok "SELF-COMPOSED: root is sentinel-only; facts/zones/edges are load-bearing fragments with visible provenance" || no "self composition must expose exactly three literal fragments and keep declarations out of the root"
+
+# The self-config is not a cosmetic split. Copy the current source snapshot, prove it builds through
+# the real CLI, then remove the contract facts that exist ONLY in core.json. Every doc edge to a
+# command/agent-guidance fact must make the real graph gate fail loud; a root-only fallback would pass.
+SELF_COMPOSED_FIXTURE="$(mktemp -d)"
+tar -C "$HERE" --exclude=.git --exclude=node_modules --exclude=.beads --exclude=.true-up -cf - . | tar -C "$SELF_COMPOSED_FIXTURE" -xf -
+git -C "$SELF_COMPOSED_FIXTURE" init -q
+git -C "$SELF_COMPOSED_FIXTURE" config user.email t@t
+git -C "$SELF_COMPOSED_FIXTURE" config user.name t
+git -C "$SELF_COMPOSED_FIXTURE" add -A && git -C "$SELF_COMPOSED_FIXTURE" commit -qm baseline
+$TU --repo "$SELF_COMPOSED_FIXTURE" --no-write --json >/dev/null 2>&1; self_base_rc=$?
+node -e 'const fs=require("fs"),p=process.argv[1],j=JSON.parse(fs.readFileSync(p,"utf8"));delete j.facts;fs.writeFileSync(p,JSON.stringify(j,null,2)+"\n")' "$SELF_COMPOSED_FIXTURE/config/true-up/core.json"
+self_broken="$($TU --repo "$SELF_COMPOSED_FIXTURE" --no-write --json 2>/dev/null)"; self_broken_rc=$?
+{ [ "$self_base_rc" -eq 0 ] && [ "$self_broken_rc" -eq 1 ] && printf '%s' "$self_broken" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===false&&d.kind==="graph-build-errors"?0:1)'; } \
+  && ok "SELF-COMPOSED: deleting fragment-only contract facts fails the real graph gate" \
+  || no "self composition must be load-bearing (baseline rc=$self_base_rc; missing-fragment-facts rc=$self_broken_rc)"
 self_guidance=$($TU --repo "$HERE" --no-write --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const edges=d.graph&&d.graph.edges||[];const hasGuide=(d.graph&&d.graph.nodes&&d.graph.nodes["fact:meta/contract.json#agent_guidance.declared-seed-edge"]);const hasConfig=edges.some(e=>e.from==="file:docs/CONFIG.md"&&e.to==="fact:meta/contract.json#agent_guidance.declared-seed-edge"&&e.directionBasis==="declared");const hasReadme=edges.some(e=>e.from==="file:README.md"&&e.to==="fact:meta/contract.json#agent_guidance.declared-seed-edge"&&e.directionBasis==="declared");process.stdout.write(hasGuide&&hasConfig&&hasReadme?"yes":"no")')
 [ "$self_guidance" = "yes" ] && ok "SELF-TRUE-UP: marker-free seed guidance is a contract fact linked to README + docs/CONFIG" || no "seed guidance must be represented in meta/contract and linked by .true-up.json"
-self_docs=$($TU --repo "$HERE" --no-write --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const g=d.graph||{};const n=g.nodes||{};const e=g.edges||[];const requiredNodes=["file:.gitignore","file:.true-up.json","file:README.md","file:SKILL.md","file:AGENTS.md","file:CLAUDE.md","file:docs/CONFIG.md","file:PUBLISHING.md","file:CHANGELOG.md","file:package.json","file:bun.lock","file:scripts/ci.sh","file:tests/engine.sh","file:bin/true-up","file:lib/engine.mjs","file:lib/symbols.mjs","file:meta/build-contract.mjs","file:meta/contract.json","file:install.sh","file:workflows/README.md","file:workflows/maintenance.workflow.js","file:workflows/audit.workflow.js"];const nodesOk=requiredNodes.every(x=>n[x])&&!n["file:.github/workflows/true-up.yml"];const nodeOk=n["file:README.md"]?.audience==="external-users-and-agents"&&n["file:SKILL.md"]?.audience==="external-agents"&&n["file:AGENTS.md"]?.audience==="maintainer-agents"&&n["file:CLAUDE.md"]?.audience==="maintainer-agents"&&n["file:docs/CONFIG.md"]?.audience==="adopters-and-agents"&&n["file:PUBLISHING.md"]?.audience==="credentialed-release-agents"&&n["file:scripts/ci.sh"]?.audience==="release-agents-and-maintainers"&&n["file:.true-up.json"]?.audience==="maintainer-agents";const edge=(from,to,kind)=>e.some(x=>x.from===from&&x.to===to&&x.directionBasis==="declared"&&(!kind||x.kind===kind));const edgeOk=edge("file:README.md","file:docs/CONFIG.md")&&edge("file:README.md","file:.true-up.json")&&edge("file:SKILL.md","file:README.md")&&edge("file:SKILL.md","file:docs/CONFIG.md")&&edge("file:AGENTS.md","file:README.md")&&edge("file:AGENTS.md","file:SKILL.md")&&edge("file:AGENTS.md","file:docs/CONFIG.md")&&edge("file:AGENTS.md","file:tests/engine.sh")&&edge("file:AGENTS.md","file:lib/engine.mjs")&&edge("file:AGENTS.md","file:scripts/ci.sh")&&edge("file:PUBLISHING.md","file:package.json")&&edge("file:PUBLISHING.md","file:bun.lock")&&edge("file:PUBLISHING.md","file:CHANGELOG.md")&&edge("file:PUBLISHING.md","file:scripts/ci.sh")&&edge("file:workflows/README.md","file:workflows/maintenance.workflow.js")&&edge("file:workflows/README.md","file:workflows/audit.workflow.js")&&edge("file:meta/contract.json","file:lib/engine.mjs","generated-from")&&edge("file:meta/contract.json","file:meta/build-contract.mjs","generated-from");process.stdout.write(nodesOk&&nodeOk&&edgeOk?"yes":"no")')
+self_docs=$($TU --repo "$HERE" --no-write --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const g=d.graph||{};const n=g.nodes||{};const e=g.edges||[];const requiredNodes=["file:.gitignore","file:.true-up.json","file:README.md","file:SKILL.md","file:AGENTS.md","file:CLAUDE.md","file:docs/CONFIG.md","file:PUBLISHING.md","file:CHANGELOG.md","file:package.json","file:bun.lock","file:scripts/ci.sh","file:tests/engine.sh","file:tests/large-json-transport.mjs","file:tests/large-vcs-output.mjs","file:tests/json-envelope-contract.mjs","file:tests/config-composition.mjs","file:tests/config-composition-adversarial.mjs","file:tests/config-composition-fuzz.mjs","file:tests/config-composition-mutations.mjs","file:agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md","file:bin/true-up","file:lib/config.mjs","file:lib/engine.mjs","file:lib/symbols.mjs","file:meta/build-contract.mjs","file:meta/contract.json","file:install.sh","file:workflows/README.md","file:workflows/maintenance.workflow.js","file:workflows/audit.workflow.js"];const nodesOk=requiredNodes.every(x=>n[x])&&!n["file:.github/workflows/true-up.yml"];const nodeOk=n["file:README.md"]?.audience==="external-users-and-agents"&&n["file:SKILL.md"]?.audience==="external-agents"&&n["file:AGENTS.md"]?.audience==="maintainer-agents"&&n["file:CLAUDE.md"]?.audience==="maintainer-agents"&&n["file:docs/CONFIG.md"]?.audience==="adopters-and-agents"&&n["file:PUBLISHING.md"]?.audience==="credentialed-release-agents"&&n["file:scripts/ci.sh"]?.audience==="release-agents-and-maintainers"&&n["file:tests/large-json-transport.mjs"]?.audience==="maintainer-agents"&&n["file:tests/large-vcs-output.mjs"]?.audience==="maintainer-agents"&&n["file:tests/json-envelope-contract.mjs"]?.audience==="maintainer-agents"&&n["file:tests/config-composition.mjs"]?.audience==="maintainer-agents"&&n["file:tests/config-composition-adversarial.mjs"]?.audience==="maintainer-agents"&&n["file:tests/config-composition-fuzz.mjs"]?.audience==="maintainer-agents"&&n["file:tests/config-composition-mutations.mjs"]?.audience==="maintainer-agents"&&n["file:lib/config.mjs"]?.audience==="maintainer-agents"&&n["file:.true-up.json"]?.audience==="maintainer-agents";const edge=(from,to,kind)=>e.some(x=>x.from===from&&x.to===to&&x.directionBasis==="declared"&&(!kind||x.kind===kind));const edgeOk=edge("file:README.md","file:docs/CONFIG.md")&&edge("file:README.md","file:.true-up.json")&&edge("file:SKILL.md","file:README.md")&&edge("file:SKILL.md","file:docs/CONFIG.md")&&edge("file:AGENTS.md","file:README.md")&&edge("file:AGENTS.md","file:SKILL.md")&&edge("file:AGENTS.md","file:docs/CONFIG.md")&&edge("file:AGENTS.md","file:tests/engine.sh")&&edge("file:AGENTS.md","file:tests/large-json-transport.mjs")&&edge("file:AGENTS.md","file:tests/large-vcs-output.mjs")&&edge("file:AGENTS.md","file:tests/json-envelope-contract.mjs")&&edge("file:AGENTS.md","file:tests/config-composition.mjs")&&edge("file:AGENTS.md","file:tests/config-composition-adversarial.mjs")&&edge("file:AGENTS.md","file:tests/config-composition-fuzz.mjs")&&edge("file:AGENTS.md","file:tests/config-composition-mutations.mjs")&&edge("file:AGENTS.md","file:lib/config.mjs")&&edge("file:AGENTS.md","file:agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md")&&edge("file:AGENTS.md","file:lib/engine.mjs")&&edge("file:AGENTS.md","file:scripts/ci.sh")&&edge("file:PUBLISHING.md","file:package.json")&&edge("file:PUBLISHING.md","file:bun.lock")&&edge("file:PUBLISHING.md","file:CHANGELOG.md")&&edge("file:PUBLISHING.md","file:scripts/ci.sh")&&edge("file:CHANGELOG.md","file:lib/engine.mjs")&&edge("file:CHANGELOG.md","file:lib/config.mjs")&&edge("file:CHANGELOG.md","file:tests/large-json-transport.mjs")&&edge("file:CHANGELOG.md","file:tests/large-vcs-output.mjs")&&edge("file:CHANGELOG.md","file:tests/json-envelope-contract.mjs")&&edge("file:CHANGELOG.md","file:tests/config-composition.mjs")&&edge("file:CHANGELOG.md","file:tests/config-composition-adversarial.mjs")&&edge("file:CHANGELOG.md","file:tests/config-composition-fuzz.mjs")&&edge("file:CHANGELOG.md","file:tests/config-composition-mutations.mjs")&&edge("file:scripts/ci.sh","file:tests/large-json-transport.mjs")&&edge("file:scripts/ci.sh","file:tests/large-vcs-output.mjs")&&edge("file:scripts/ci.sh","file:tests/json-envelope-contract.mjs")&&edge("file:tests/engine.sh","file:tests/large-json-transport.mjs")&&edge("file:tests/engine.sh","file:tests/large-vcs-output.mjs")&&edge("file:tests/engine.sh","file:tests/json-envelope-contract.mjs")&&edge("file:tests/engine.sh","file:tests/config-composition.mjs")&&edge("file:tests/engine.sh","file:tests/config-composition-adversarial.mjs")&&edge("file:tests/engine.sh","file:tests/config-composition-fuzz.mjs")&&edge("file:tests/engine.sh","file:tests/config-composition-mutations.mjs")&&edge("file:tests/config-composition.mjs","file:lib/config.mjs")&&edge("file:tests/config-composition-adversarial.mjs","file:lib/config.mjs")&&edge("file:tests/config-composition-adversarial.mjs","file:lib/engine.mjs")&&edge("file:tests/config-composition-fuzz.mjs","file:lib/config.mjs")&&edge("file:tests/config-composition-mutations.mjs","file:lib/config.mjs")&&edge("file:tests/config-composition-mutations.mjs","file:lib/engine.mjs")&&edge("file:agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md","file:tests/config-composition.mjs")&&edge("file:agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md","file:tests/config-composition-adversarial.mjs")&&edge("file:agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md","file:tests/config-composition-fuzz.mjs")&&edge("file:agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md","file:tests/config-composition-mutations.mjs")&&edge("file:agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md","file:lib/config.mjs")&&edge("file:workflows/README.md","file:workflows/maintenance.workflow.js")&&edge("file:workflows/README.md","file:workflows/audit.workflow.js")&&edge("file:meta/contract.json","file:lib/engine.mjs","generated-from")&&edge("file:meta/contract.json","file:meta/build-contract.mjs","generated-from");process.stdout.write(nodesOk&&nodeOk&&edgeOk?"yes":"no")')
 [ "$self_docs" = "yes" ] && ok "SELF-TRUE-UP: first-class files, audiences, release/local-CI/workflow deps are graph data" || no "self graph must model first-class files, audiences, and release/local-CI/workflow deps"
+composition_integration_docs=$($TU --repo "$HERE" --no-write --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const n=d.graph?.nodes||{};const e=d.graph?.edges||[];const files=["tests/config-composition-cli.mjs","tests/config-composition-worktrees.mjs","tests/config-composition-adversarial.mjs","tests/config-composition-fuzz.mjs","tests/config-composition-mutations.mjs","tests/config-composition-capabilities.mjs","tests/config-composition-package.mjs"];const edge=(from,to)=>e.some(x=>x.from===`file:${from}`&&x.to===`file:${to}`&&x.directionBasis==="declared");const nodesOk=files.every(path=>n[`file:${path}`]?.audience==="maintainer-agents");const edgesOk=files.every(path=>edge("AGENTS.md",path)&&edge("CHANGELOG.md",path)&&edge("tests/engine.sh",path)&&edge("agent_ergonomics_audit/audit/CONFIG_COMPOSITION_CONTRACT.md",path));process.stdout.write(nodesOk&&edgesOk?"yes":"no")')
+[ "$composition_integration_docs" = "yes" ] && ok "SELF-TRUE-UP: every composition integration gate has an audience and maintainer-doc/harness edges" || no "composition integration gates must be first-class self-graph artifacts"
+
+wave4_self_graph=$($TU --repo "$HERE" --no-write --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const n=d.graph?.nodes||{};const e=d.graph?.edges||[];const config=["config/true-up/core.json","config/true-up/dependencies.json","config/true-up/zones.json"];const example=["examples/config-composition/.true-up.json","examples/config-composition/README.md","examples/config-composition/config/true-up/core.json","examples/config-composition/config/true-up/docs.json","examples/config-composition/data/commands.json","examples/config-composition/docs/commands.md"];const edge=(from,to,kind)=>e.some(x=>x.from===`file:${from}`&&x.to===`file:${to}`&&x.directionBasis==="declared"&&(!kind||x.kind===kind));const configOk=config.every(path=>n[`file:${path}`]?.audience==="maintainer-agents")&&config.every(path=>edge("tests/engine.sh",path));const exampleOk=example.every(path=>n[`file:${path}`]?.audience==="adopters-and-agents")&&example.every(path=>edge("scripts/ci.sh",path));const facts=Object.keys(n).filter(id=>id.startsWith("fact:meta/contract.json#config_composition."));const docs=["README.md","SKILL.md","docs/CONFIG.md","AGENTS.md"];const factsOk=facts.length===12&&facts.every(to=>docs.every(from=>e.some(x=>x.from===`file:${from}`&&x.to===to&&x.directionBasis==="declared"&&x.declaredIn?.source==="config/true-up/dependencies.json")));const generated=edge("meta/contract.json","lib/config.mjs","generated-from");process.stdout.write(configOk&&exampleOk&&factsOk&&generated?"yes":"no")')
+[ "$wave4_self_graph" = "yes" ] && ok "SELF-TRUE-UP: composed fragments, machine-contract facts, installed-package tests, and packaged example are load-bearing graph data" || no "Wave 4 artifacts and contract facts must remain first-class self-graph nodes with declared provenance"
+ci_scratch_isolation=$(node -e 'const s=require("fs").readFileSync(process.argv[1],"utf8");const root=s.indexOf("CI_SCRATCH_ROOT=");const work=s.indexOf("WORK=\"$(mktemp -d \"$CI_SCRATCH_ROOT/true-up-ci.XXXXXX\")\"");const ceiling=s.indexOf("GIT_CEILING_DIRECTORIES=");const bare=s.includes("WORK=\"$(mktemp -d)\"");process.stdout.write(root>=0&&work>root&&ceiling>work&&!bare?"yes":"no")' "$HERE/scripts/ci.sh")
+[ "$ci_scratch_isolation" = "yes" ] && ok "CI-HARNESS: package fixtures use an owned scratch root plus Git ceiling, never inherited bare TMPDIR" || no "local CI must isolate package fixtures from unrelated VCS markers in TMPDIR ancestors"
+compat_fixture_graph=$($TU --repo "$HERE" --no-write --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const n=d.graph?.nodes||{};const e=d.graph?.edges||[];const target="file:tests/fixtures/pre-composition/README.md";const edge=from=>e.some(x=>x.from===`file:${from}`&&x.to===target&&x.directionBasis==="declared"&&x.declaredIn?.source==="config/true-up/dependencies.json");const node=n[target];process.stdout.write(node?.audience==="maintainer-agents"&&node?.zone==="immutable-compatibility-test-fixtures"&&edge("AGENTS.md")&&edge("tests/config-composition-cli.mjs")?"yes":"no")')
+[ "$compat_fixture_graph" = "yes" ] && ok "SELF-TRUE-UP: immutable compatibility fixture provenance has maintainer audience and declared harness edges" || no "compatibility fixture provenance must remain first-class self-graph data"
+ci_history_free=$(node -e 'const s=require("fs").readFileSync(process.argv[1],"utf8");const required=["HISTORY_FREE_SOURCE=","tests/fixtures/pre-composition","4eb0e4ddf4eda309857a97a317424c2aea664250","7844b4f77f4cd74f7026edf8f7bf6811c6a11e65","unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_OBJECT_DIRECTORY","history-free-cli.log","config composition CLI: 9/9 passed; fixtures cleaned=true"];process.stdout.write(required.every(x=>s.includes(x))?"yes":"no")' "$HERE/scripts/ci.sh")
+[ "$ci_history_free" = "yes" ] && ok "CI-HARNESS: composition CLI replays from a one-commit source tree with historical object access stripped" || no "local CI must preserve the executable history-free source replay"
 workflow_audiences=$($TU --repo "$HERE" --no-write --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const n=d.graph?.nodes||{};process.stdout.write(n["file:workflows/README.md"]?.audience==="external-agents"&&n["file:workflows/maintenance.workflow.js"]?.audience==="external-agents"&&n["file:workflows/audit.workflow.js"]?.audience==="external-agents"?"yes":"no")')
 [ "$workflow_audiences" = "yes" ] && ok "SELF-TRUE-UP: workflow templates are explicitly external-agent artifacts" || no "workflow templates must be audience-stamped as external-agent artifacts"
 readme_cmd_edges=$($TU --repo "$HERE" --no-write --json 2>/dev/null | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const nodes=d.graph?.nodes||{};const edges=d.graph?.edges||[];const facts=Object.keys(nodes).filter(k=>k.startsWith("fact:meta/contract.json#commands."));const missing=facts.filter(to=>!edges.some(e=>e.from==="file:README.md"&&e.to===to&&e.directionBasis==="declared"));process.stdout.write(missing.join("\\n"))')
@@ -1489,6 +1553,89 @@ echo "$ihelp" | grep -Eq "Tier 1|Tier 2|Axiom [0-9]" && jargon_hits="$jargon_hit
 # range prints real code — the audit caught exactly this).
 echo "$ihelp" | grep -qE 'set -euo pipefail|^REPO_SLUG=|umask |shopt -s' && no "install.sh --help leaks source code (sed range overshoots the comment header)" || ok "install.sh --help renders only the comment header (no source leak)"
 
+# T78b — LARGE STDOUT TRANSPORT. A caller once observed an exact 65,536-byte cutoff. Pin complete
+# source-entry structured AND human output above that boundary for graph, impact proof, status, and
+# dry-run. The helper also exercises gate child paths and proves its oracle rejects injected exact-
+# 65,536-byte and asynchronous-writer truncation instead of accepting a false-success prefix.
+mkdir -p "$ORIG_HOME/scratch"
+JSON_TRANSPORT="$(mktemp -d "$ORIG_HOME/scratch/true-up-json-transport.XXXXXX")"
+if node "$HERE/tests/large-json-transport.mjs" "$HERE/bin/true-up" "$JSON_TRANSPORT/source-run" "$JSON_TRANSPORT/source-report.json" >"$JSON_TRANSPORT/source.stdout" 2>"$JSON_TRANSPORT/source.stderr"; then
+  ok "large stdout transport: source entry emits complete >64 KiB structured/human output and rejects truncation mutants"
+else
+  cat "$JSON_TRANSPORT/source.stderr" >&2
+  no "large stdout transport: source entry must never silently truncate piped output"
+fi
+if node "$HERE/tests/large-vcs-output.mjs" "$HERE/bin/true-up" "$JSON_TRANSPORT/vcs-source-run" "$JSON_TRANSPORT/vcs-source-report.json" >"$JSON_TRANSPORT/vcs-source.stdout" 2>"$JSON_TRANSPORT/vcs-source.stderr"; then
+  ok "large VCS transport: >1 MiB file lists/history stay complete and overflow fails loud"
+else
+  cat "$JSON_TRANSPORT/vcs-source.stderr" >&2
+  no "large VCS transport: VCS capture failure must never become an empty false-clean result"
+fi
+if TRUE_UP_JSON_ENVELOPE_SCRATCH="$JSON_TRANSPORT/json-envelope-source" node "$HERE/tests/json-envelope-contract.mjs" >"$JSON_TRANSPORT/json-envelope-source.stdout" 2>"$JSON_TRANSPORT/json-envelope-source.stderr"; then
+  ok "JSON envelope contract: every advertised source command and audited failure path emits one uniform object"
+else
+  cat "$JSON_TRANSPORT/json-envelope-source.stderr" >&2
+  no "JSON envelope contract: source command inventory must remain complete and uniform"
+fi
+
+# T80 — CONFIG COMPOSITION LOADER. Keep the zero-dependency loader's merge algebra, path/resource
+# boundary, semantic projection, provenance, and legacy fallback pinned before any CLI command can use
+# composed config. This direct gate is intentionally source-local; clean-package repetition is added
+# when lib/config.mjs enters the package boundary in Wave 4.
+if TRUE_UP_CONFIG_TEST_SCRATCH="$ORIG_HOME/scratch/true-up-config-loader-tests" node "$HERE/tests/config-composition.mjs" >"$JSON_TRANSPORT/config-composition-source.stdout" 2>"$JSON_TRANSPORT/config-composition-source.stderr"; then
+  ok "config composition: deterministic loader contract passes its source lifecycle gate"
+else
+  cat "$JSON_TRANSPORT/config-composition-source.stderr" >&2
+  no "config composition: loader contract must pass before CLI integration"
+fi
+if TRUE_UP_CONFIG_CLI_TEST_SCRATCH="$ORIG_HOME/scratch/true-up-config-composition/cli-tests" node "$HERE/tests/config-composition-cli.mjs" >"$JSON_TRANSPORT/config-composition-cli-source.stdout" 2>"$JSON_TRANSPORT/config-composition-cli-source.stderr"; then
+  ok "config composition: every config-consuming source CLI path shares one composed bundle"
+else
+  cat "$JSON_TRANSPORT/config-composition-cli-source.stderr" >&2
+  no "config composition: source CLI integration, precedence, and write barriers must stay green"
+fi
+if TRUE_UP_CONFIG_WORKTREE_SCRATCH="$ORIG_HOME/scratch/true-up-config-composition/worktree-tests" node "$HERE/tests/config-composition-worktrees.mjs" "$HERE/bin/true-up" "$JSON_TRANSPORT/config-composition-worktrees-source.json" >"$JSON_TRANSPORT/config-composition-worktrees-source.stdout" 2>"$JSON_TRANSPORT/config-composition-worktrees-source.stderr"; then
+  ok "config composition: Git/jj staging and linked-worktree isolation matrix passes"
+else
+  cat "$JSON_TRANSPORT/config-composition-worktrees-source.stderr" >&2
+  no "config composition: committed freshness and worktree isolation must stay green"
+fi
+if TRUE_UP_CONFIG_ADVERSARIAL_SCRATCH="$ORIG_HOME/scratch/true-up-config-composition/adversarial-tests" node "$HERE/tests/config-composition-adversarial.mjs" "$HERE/bin/true-up" "$JSON_TRANSPORT/config-composition-adversarial-source.json" >"$JSON_TRANSPORT/config-composition-adversarial-source.stdout" 2>"$JSON_TRANSPORT/config-composition-adversarial-source.stderr"; then
+  ok "config composition: compound adversarial boundary and atomic-failure corpus passes"
+else
+  cat "$JSON_TRANSPORT/config-composition-adversarial-source.stderr" >&2
+  no "config composition: compound invalid inputs must select a stable error and preserve state"
+fi
+if node "$HERE/tests/config-composition-fuzz.mjs" --scratch "$ORIG_HOME/scratch/true-up-config-composition/fuzz-tests" --artifacts "$JSON_TRANSPORT/config-composition-fuzz-artifacts" --report "$JSON_TRANSPORT/config-composition-fuzz-source.json" >"$JSON_TRANSPORT/config-composition-fuzz-source.stdout" 2>"$JSON_TRANSPORT/config-composition-fuzz-source.stderr"; then
+  ok "config composition: fixed-seed structure-aware metamorphic fuzz campaign passes"
+else
+  cat "$JSON_TRANSPORT/config-composition-fuzz-source.stderr" >&2
+  no "config composition: partition/permutation/collision metamorphic relations must stay invariant"
+fi
+if TRUE_UP_CONFIG_MUTATION_SCRATCH="$ORIG_HOME/scratch/true-up-config-composition/mutation-tests" node "$HERE/tests/config-composition-mutations.mjs" "$JSON_TRANSPORT/config-composition-mutations-source" >"$JSON_TRANSPORT/config-composition-mutations-source.stdout" 2>"$JSON_TRANSPORT/config-composition-mutations-source.stderr"; then
+  ok "config composition: all named production mutants are killed with reverted-green proofs"
+else
+  cat "$JSON_TRANSPORT/config-composition-mutations-source.stderr" >&2
+  no "config composition: mutation matrix must kill every named regression at its intended oracle"
+fi
+if TRUE_UP_CONFIG_CAPABILITIES_SCRATCH="$ORIG_HOME/scratch/true-up-config-composition/capabilities-tests" node "$HERE/tests/config-composition-capabilities.mjs" >"$JSON_TRANSPORT/config-composition-capabilities-source.stdout" 2>"$JSON_TRANSPORT/config-composition-capabilities-source.stderr"; then
+  ok "config composition: help, robot handbook, capabilities schema, and generated steward stay in sync"
+else
+  cat "$JSON_TRANSPORT/config-composition-capabilities-source.stderr" >&2
+  no "config composition: machine-readable schema and discoverability contract must stay synchronized"
+fi
+if node "$HERE/tests/config-composition-package.mjs" \
+  --entry "$HERE/bin/true-up" \
+  --scratch "$ORIG_HOME/scratch/true-up-config-composition/package-source" \
+  --report "$JSON_TRANSPORT/config-composition-package-source.json" \
+  --allow-source-entry \
+  >"$JSON_TRANSPORT/config-composition-package-source.stdout" 2>"$JSON_TRANSPORT/config-composition-package-source.stderr"; then
+  ok "config composition: package-boundary harness passes its explicit source-entry control"
+else
+  cat "$JSON_TRANSPORT/config-composition-package-source.stderr" >&2
+  no "config composition: package harness must reject fallback and pass only the supplied entry"
+fi
+
 # ============================================================================
 # T79 — RUNAWAY GUARD (the 2026-06 incident: engine.mjs pinned at ~95% CPU for 14+ days).
 # Root cause: suppressor() called fileSuppressed() — a whole-file regex scan — on EVERY line, making
@@ -1508,7 +1655,7 @@ timeout 30 $TU --repo "$RUNAWAY" --no-write >/dev/null 2>&1
 derr="$(TRUE_UP_DEADLINE_MS=1 $TU --repo "$RUNAWAY" --no-write 2>&1 >/dev/null)"; drc=$?
 { [ "$drc" -eq 2 ] && echo "$derr" | grep -q 'deadline exceeded'; } && ok "runaway guard: TRUE_UP_DEADLINE_MS aborts a spinning engine (exit 2, names the loop)" || no "runaway guard: deadline watchdog must abort with exit 2 + 'deadline exceeded' (got rc=$drc)"
 djs="$(TRUE_UP_DEADLINE_MS=1 $TU --repo "$RUNAWAY" --no-write --json 2>/dev/null)"
-printf '%s' "$djs" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===false&&d.error==="deadline-exceeded"&&d.where?0:1)' 2>/dev/null && ok "runaway guard: --json deadline abort emits {ok:false,error:deadline-exceeded,where}" || no "runaway guard: --json deadline abort must emit a parseable envelope"
+printf '%s' "$djs" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(d.ok===false&&d.error==="deadline-exceeded"&&d.kind==="deadline-exceeded"&&d.where?0:1)' 2>/dev/null && ok "runaway guard: --json deadline abort emits {ok:false,kind:deadline-exceeded,where}" || no "runaway guard: --json deadline abort must emit a parseable envelope with stable kind"
 TRUE_UP_DEADLINE_MS=0 $TU --repo "$RUNAWAY" --no-write >/dev/null 2>&1
 [ "$?" -eq 0 ] && ok "runaway guard: TRUE_UP_DEADLINE_MS=0 disables the watchdog (opt-out stays possible)" || no "runaway guard: deadline=0 must disable the watchdog"
 

@@ -1,0 +1,11 @@
+{
+  "_comment": "Small root manifest; domain declarations live in config/true-up/.",
+  "compositionVersion": 1,
+  "include": [
+    "config/true-up/core.json",
+    "config/true-up/docs.json"
+  ],
+  "zones": null,
+  "out": ".true-up/depgraph.json",
+  "repoId": "true-up-composition-example"
+}

@@ -1,0 +1,45 @@
+{
+  "_owner": "documentation",
+  "zones": [
+    {
+      "path": "docs/",
+      "visibility": "public",
+      "audience": "users",
+      "intent": "command-reference",
+      "rules": ["no-machine-local-paths"]
+    },
+    {
+      "path": "data/",
+      "visibility": "public",
+      "audience": "maintainers",
+      "intent": "command-source-data",
+      "rules": ["no-machine-local-paths"]
+    },
+    {
+      "path": "README.md",
+      "visibility": "public",
+      "audience": "users",
+      "intent": "example-overview",
+      "rules": ["no-machine-local-paths"]
+    },
+    {
+      "path": "",
+      "visibility": "public",
+      "audience": "maintainers",
+      "intent": "example-default",
+      "rules": ["no-machine-local-paths"]
+    }
+  ],
+  "seed": [
+    {
+      "from": "README.md",
+      "to": "data/commands.json",
+      "kind": "derives-facts-from"
+    },
+    {
+      "from": "docs/commands.md",
+      "to": "data/commands.json#commands.build",
+      "kind": "derives-facts-from"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "commands": [
+    {
+      "name": "build",
+      "summary": "Build the dependency graph"
+    },
+    {
+      "name": "status",
+      "summary": "Inspect workspace identity and pending work"
+    }
+  ]
+}

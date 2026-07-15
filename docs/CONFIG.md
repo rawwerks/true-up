@@ -1,9 +1,10 @@
 # `.true-up.json` — per-repo configuration
 
 Place `.true-up.json` (or `true-up.config.json`) at the repo root. Everything repo-specific lives
-here; the engine itself is generic. All keys are optional. An absent config is fine (defaults apply);
-a present-but-malformed config — unparseable JSON, a wrong-typed `facts`/`zones`/`seed`/`out`, or an
-`out` path that escapes the repo — is a hard error and exits 2 (`invalid-config`).
+here; the engine itself is generic. In a flat config all keys are optional. An absent config is fine
+(defaults apply); a present-but-malformed config — unparseable JSON, a wrong-typed
+`facts`/`zones`/`seed`/`out`, or an `out` path that escapes the repo — is a hard error and exits 2
+(`invalid-config`).
 
 ```json
 {
@@ -26,6 +27,169 @@ a present-but-malformed config — unparseable JSON, a wrong-typed `facts`/`zone
   "out": ".true-up/depgraph.json"
 }
 ```
+
+## Native config composition (version 1)
+
+Large repositories can keep a small root manifest and split declarations into domain-owned JSON
+fragments. Composition is deterministic and zero-dependency. It improves ownership, reviewability,
+and merge isolation; it is not a promise that graph construction will run faster.
+
+A composed root looks like this:
+
+```json
+{
+  "_comment": "root manifest; declarations live in domain fragments",
+  "compositionVersion": 1,
+  "include": [
+    "config/true-up/core.json",
+    "config/true-up/docs.json"
+  ],
+  "zones": null,
+  "out": ".true-up/depgraph.json",
+  "strictSpans": true
+}
+```
+
+A fragment is ordinary strict JSON containing declaration keys:
+
+```json
+{
+  "_owner": "docs",
+  "zones": [
+    { "path": "docs/", "visibility": "public", "audience": "users", "intent": "documentation", "rules": ["no-machine-local-paths"] }
+  ],
+  "seed": [
+    { "from": "docs/api.md", "to": "data/api.json#routes.timeout", "kind": "derives-facts-from" }
+  ]
+}
+```
+
+All declaration paths are relative to the selected repository/worktree root. They are never rebased
+to the fragment's directory. A complete runnable tree is in
+[`examples/config-composition/`](../examples/config-composition/README.md).
+
+### Activation and key ownership
+
+Composition intent exists when the root contains `compositionVersion`, contains `include`, or has
+`zones: null`. Once any of those is present, all three activation fields must be valid together:
+
+- `compositionVersion` must be exactly `1`.
+- `include` must be a nonempty array of strings.
+- `zones` must be exactly `null` in the root.
+
+A partial sentinel or unsupported version exits 2 with `invalid-config` and detail code
+`composition-sentinel-invalid`; it never falls back to flat-config behavior. `zones: null` is also the
+compatibility guard for older loaders: loaders without composition support reject its invalid zone
+type instead of ignoring `compositionVersion`/`include` and producing a false-clean partial graph.
+
+The root and fragments have deliberately different responsibilities:
+
+| Location | Allowed keys |
+|---|---|
+| Root only | `$schema`, `compositionVersion`, `include`, `out`, `symbols`, `strictSpans`, `deadlineMs`, `repoId` |
+| Root declarations | `facts`, `seed`, `imports`, `exports` |
+| Fragment declarations | `facts`, `zones`, `seed`, `imports`, `exports` |
+| Either | underscore-prefixed metadata such as `_comment` or `_owner` (ignored semantically) |
+
+The root's `zones` value is only the `null` activation sentinel; zone arrays belong in fragments.
+Fragments cannot contain `include`, `compositionVersion`, or another root-only setting. Unknown keys
+that do not start with `_` fail closed. Duplicate JSON object keys fail in every composed source,
+including keys whose escape sequences decode to the same string.
+
+### Literal includes and resource bounds
+
+Includes are an explicit allowlist, not discovery:
+
+- Paths use `/`, are relative to the selected worktree root, and are normalized before comparison.
+- Absolute paths, `..` escapes, backslashes, empty paths, NULs, invalid Unicode, and paths resolving to
+  the selected root config are rejected.
+- `.git`, `.jj`, and `.true-up` are forbidden include locations. Git-ignored fragments are rejected.
+- The root config and every fragment must be regular files inside the repository. A symlink in any
+  path component, a final symlink, or a realpath escape is rejected before content is accepted.
+- Normalized duplicate include paths are rejected. Globs are not expanded, directories are not
+  scanned, and fragments cannot include other fragments.
+- A manifest may include at most 256 fragments, with at most 32 MiB (33,554,432 bytes) of fragment
+  content in total.
+
+The root is parsed and validated before any fragment is opened. Fragment paths are then processed in
+ascending UTF-8 byte order after normalization, regardless of manifest order. This gives stable output
+and a stable first failure. Reordering `include` does not change config semantics.
+
+### Deterministic merge and conflicts
+
+Array order and intentional multiplicity within one source are preserved. Across sources, each logical
+declaration has exactly one owner; repeated ownership fails even when the values are identical:
+
+| Declaration | Conflict identity |
+|---|---|
+| `facts` | normalized fact-source path |
+| `zones` | normalized zone path |
+| `seed` | normalized `(from, to)` pair |
+| `imports` | alias |
+| `exports` | `id` |
+
+For `seed`, changing `kind` or `via` does not create a second identity: the same endpoint pair still
+has two owners. A `cross-source-conflict` error reports the identity and every repo-relative
+`source`/JSON `pointer` origin so the ownership decision is explicit. Composition errors use top-level
+JSON `kind: "invalid-config"`, exit 2, and expose a stable `detail.code`; depending on the failure,
+`detail` also carries `source`, `pointer`, `includeChain`, `origins`, `location`, or `conflicts`.
+
+### Inspection, provenance, and worktrees
+
+Every config-consuming command uses the same fully validated bundle. Config-independent discovery
+commands (`--help`, `--version`, `robot-docs`, and `capabilities`) do not traverse fragments. Inspect a
+composed config without writing:
+
+```sh
+true-up build --no-write --json
+true-up graph --json
+true-up status --json
+```
+
+Build/graph output adds:
+
+- `composition`: `compositionVersion`, `entry`, `fragmentCount`, `includedBytes`, and `sourceCount`.
+- `configSources[]`: repo-relative `path`, `role`, `bytes`, and content `hash` for the root and fragments.
+- `declaredIn` on composed seed edges: the declaration's repo-relative `source` and JSON `pointer`.
+
+`status --json` adds `state` to each config source and reports non-tracked states in
+`configSourceWarnings`. Git states include `tracked`, `staged`, `unstaged`, `untracked`,
+`skip-worktree`, and `assume-unchanged`; a failed classifier reports `unknown` and the command fails
+loud where a reliable VCS read is required.
+
+The selected root is the boundary. Linked Git worktrees load their own root/fragments and keep their
+own graph cache. `--check --committed` compares against the selected Git worktree's index only—never a
+fallback `HEAD` blob—and accepts config sources only when tracked or staged; untracked, unstaged, or
+hidden (`skip-worktree`/`assume-unchanged`) sources fail closed. It revalidates source hashes around the
+check so a concurrent config edit cannot produce a false-clean result. In a jj-only repository, the
+committed view is `@` (and the usual default comparison base is `@-`).
+
+### Manual migration and rollback
+
+There is no migration command. Use this repeatable structural procedure:
+
+1. Start in the workspace named by `true-up status --json`. Preserve the flat config in version
+   control and capture `true-up build --no-write --json` as a baseline.
+2. Group declarations by domain without editing their values. Preserve source-local array order and
+   intentional duplicates. Keep root-only settings in the root.
+3. Ensure each conflict identity in the table above has exactly one source owner, then add the complete
+   activation sentinel and literal include list.
+4. Run the three inspection commands above. Compare dependency nodes and edges with the baseline;
+   fragment file nodes, `composition`, `configSources`, and edge `declaredIn` are expected additions.
+5. Run `true-up build`, the repository's tests, and `true-up gate`. If the graph is tracked,
+   stage/commit the root, all fragments, and rebuilt graph together, then run
+   `true-up --check --committed`.
+
+Running the procedure again with unchanged declarations is idempotent. To roll back, restore the prior
+flat config, remove the fragments or leave them unreferenced, rebuild the graph, and repeat the gates.
+There is no generated merged-config file to clean up.
+
+### Non-goals
+
+Version 1 intentionally does not provide glob discovery, recursive includes, YAML/JSONC/comments,
+automatic migration, live sibling-repository includes, or a shared cross-worktree graph cache. Use
+strict JSON and explicit one-level paths. Inter-repo dependencies remain consented snapshots through
+`imports`/`exports`, not config includes.
 
 ## `facts` — steward decomposition
 
@@ -281,10 +445,11 @@ internal/private/secret import. Public snapshots omit source commit ids.
   fresh rebuild. This is all you need if you don't track the graph (the default `.gitignore` may
   exclude `.true-up/`); regenerate it locally before relying on `--impact`/`run`.
 - `--check --committed` — **the drift gate** for repos that *do* commit the graph. It compares a
-  fresh rebuild to the **VCS-stored** graph blob. In Git repos, the staged `:<out>` blob is preferred
-  (pre-commit), then `HEAD:<out>` (CI). In jj-only repos, it reads `@`. It exits 1 if they differ or if
-  the graph is absent from that VCS view. Wire this into pre-commit/CI to catch "source changed without
-  the regenerated graph."
+  fresh rebuild to the **VCS-stored** graph blob. In Git repos, it reads only `:<out>` from the
+  selected worktree's index; a clean CI index mirrors `HEAD`, but there is no `HEAD:<out>` fallback,
+  so a staged deletion remains absent and fails. In jj-only repos, it reads `@`. It exits 1 if they
+  differ or if the graph is absent from that VCS view. Wire this into pre-commit/CI to catch "source
+  changed without the regenerated graph."
 
 If you choose to commit/track the graph, make sure `out` is **not** ignored so the VCS blob exists for
 `--check --committed` to compare against. Explicitly setting `"out": ".true-up/depgraph.json"` is

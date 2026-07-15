@@ -1,0 +1,8 @@
+{
+  "_owner": "core-data",
+  "facts": {
+    "data/commands.json": [
+      ["commands", "name"]
+    ]
+  }
+}
